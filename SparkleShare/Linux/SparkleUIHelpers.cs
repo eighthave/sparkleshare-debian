@@ -14,40 +14,30 @@
 //   You should have received a copy of the GNU General Public License
 //   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-using Gtk;
-using SparkleLib;
 using System;
 using System.IO;
-using System.Net;
-using System.Security.Cryptography;
-using System.Text;
+
+using Gtk;
 
 namespace SparkleShare {
 
     public static class SparkleUIHelpers {
 
-        // Creates an MD5 hash of input
-        public static string GetMD5 (string s)
-        {
-            MD5 md5 = new MD5CryptoServiceProvider ();
-            Byte[] bytes = ASCIIEncoding.Default.GetBytes (s);
-            Byte[] encodedBytes = md5.ComputeHash (bytes);
-            return BitConverter.ToString (encodedBytes).ToLower ().Replace ("-", "");
-        }
-
-
         // Looks up an icon from the system's theme
         public static Gdk.Pixbuf GetIcon (string name, int size)
         {
             IconTheme icon_theme = new IconTheme ();
+			
+//          foreach (string search_path in IconTheme.Default.SearchPath)
+//              icon_theme.AppendSearchPath (search_path);	
 
-            icon_theme.AppendSearchPath (
-                Path.Combine (SparkleUI.AssetsPath, "icons")
-            );
+            // FIXME: Temporary workaround for a bug in IconTheme.SearchPath in Gtk# on 64-bit systems
+            // https://github.com/mono/gtk-sharp/commit/9c54fd5ae77f63d11fdc6873a3cb90691990e37f
+            icon_theme.AppendSearchPath ("/usr/share/icons");
+            icon_theme.AppendSearchPath ("/usr/local/share/icons");
+            icon_theme.AppendSearchPath ("/opt/local/share/icons");
 
-            icon_theme.AppendSearchPath (
-                Path.Combine (Path.GetDirectoryName (SparkleConfig.DefaultConfig.FullPath), "icons")
-            );
+            icon_theme.AppendSearchPath (Path.Combine (SparkleUI.AssetsPath, "icons"));
 
             try {
                 return icon_theme.LoadIcon (name, size, IconLookupFlags.GenericFallback);
@@ -65,9 +55,7 @@ namespace SparkleShare {
 
         public static Image GetImage (string name)
         {
-            string image_path = SparkleHelpers.CombineMore (Defines.DATAROOTDIR, "sparkleshare",
-                "pixmaps", name);
-
+            string image_path = new string [] { SparkleUI.AssetsPath, "pixmaps", name }.Combine ();
             return new Image (image_path);
         }
 

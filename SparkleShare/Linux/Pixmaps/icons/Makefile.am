@@ -1,31 +1,30 @@
 SUBDIRS = ubuntu-mono-dark \
-	ubuntu-mono-light
+	ubuntu-mono-light\
+	gnome
 
 theme = hicolor
 system_themedir = $(datadir)/icons/$(theme)
 app_themedir = $(pkgdatadir)/icons/$(theme)
 
 system_theme_icons = \
-	apps,folder-sparkleshare-16.png \
-	apps,folder-sparkleshare-22.png	\
-	apps,folder-sparkleshare-24.png \
-	apps,folder-sparkleshare-256.png \
-	apps,folder-sparkleshare-32.png \
-	apps,folder-sparkleshare-48.png
+	apps,sparkleshare-16.png \
+	apps,sparkleshare-22.png	\
+	apps,sparkleshare-24.png \
+	apps,sparkleshare-256.png \
+	apps,sparkleshare-32.png \
+	apps,sparkleshare-48.png
 
 app_theme_icons = \
 	animations,process-working-22.png \
-	places,folder-sparkleshare-16.png \
-	places,folder-sparkleshare-22.png \
-	places,folder-sparkleshare-24.png \
-	places,folder-sparkleshare-256.png \
-	places,folder-sparkleshare-32.png \
-	places,folder-sparkleshare-48.png \
-	status,process-syncing-i-24.png \
-	status,process-syncing-ii-24.png \
-	status,process-syncing-iii-24.png \
-	status,process-syncing-iiii-24.png \
-	status,process-syncing-iiiii-24.png \
+	places,sparkleshare-16.png \
+	places,sparkleshare-22.png \
+	places,sparkleshare-24.png \
+	places,sparkleshare-256.png \
+	places,sparkleshare-32.png \
+	places,sparkleshare-48.png \
+	status,process-syncing-up-24.png \
+	status,process-syncing-down-24.png \
+	status,process-syncing-24.png \
 	status,process-syncing-error-24.png	\
 	status,document-added-12.png \
 	status,document-edited-12.png \

@@ -42,13 +42,6 @@ namespace SparkleShare {
         private SparkleSpinner spinner;
 
 
-        // Short alias for the translations
-        public static string _ (string s)
-        {
-            return Catalog.GetString (s);
-        }
-
-
         public SparkleEventLog () : base ("")
         {
             SetSizeRequest (480, (int) (Gdk.Screen.Default.Height * 0.8));
@@ -61,7 +54,7 @@ namespace SparkleShare {
             Resizable   = true;
             BorderWidth = 0;
 
-            Title = _("Recent Changes");
+            Title = "Recent Changes";
             IconName = "folder-sparkleshare";
 
             DeleteEvent += delegate (object o, DeleteEventArgs args) {
@@ -138,10 +131,33 @@ namespace SparkleShare {
                     Present ();
                 });
             };
+			
+			Controller.ShowSaveDialogEvent += delegate (string file_name, string target_folder_path) {
+                Application.Invoke (delegate {
+                    FileChooserDialog dialog = new FileChooserDialog ("Restore from History",
+						this, FileChooserAction.Save, "Cancel", ResponseType.Cancel, "Save", ResponseType.Ok);
+					
+					dialog.CurrentName = file_name;
+					dialog.SetCurrentFolder (target_folder_path);
+					
+					if (dialog.Run () == (int) ResponseType.Ok)
+						Controller.SaveDialogCompleted (dialog.Filename);
+					else
+						Controller.SaveDialogCancelled ();
+					
+					dialog.Destroy ();
+                });
+            };
 
             Controller.UpdateChooserEvent += delegate (string [] folders) {
                 Application.Invoke (delegate {
                     UpdateChooser (folders);
+                });
+            };
+			
+			Controller.UpdateChooserEnablementEvent += delegate (bool enabled) {
+                Application.Invoke (delegate {
+                    this.combo_box.Sensitive = enabled;
                 });
             };
 
@@ -175,7 +191,7 @@ namespace SparkleShare {
         
         
         private void WebViewNavigationRequested (object o, WebKit.NavigationRequestedArgs args) {
-            Controller.LinkClicked (args.Request.Uri.Substring (7));
+            Controller.LinkClicked (args.Request.Uri);
 
             // Don't follow HREFs (as this would cause a page refresh)
             if (!args.Request.Uri.Equals ("file:"))
@@ -202,7 +218,7 @@ namespace SparkleShare {
 
             ListStore store = new ListStore (typeof (string));
 
-            store.AppendValues (_("Summary"));
+            store.AppendValues ("Summary");
             store.AppendValues ("---");
             
             this.combo_box.Model  = store;
@@ -246,55 +262,35 @@ namespace SparkleShare {
 
         public void UpdateContent (string html)
         {
-            Thread thread = new Thread (new ThreadStart (delegate {
-                if (html == null)
-                    html = Controller.HTML;
+            string pixmaps_path = IO.Path.Combine (SparkleUI.AssetsPath, "pixmaps");
+            string icons_path   = new string [] {SparkleUI.AssetsPath, "icons", "hicolor", "12x12", "status"}.Combine ();
 
-                if (html == null)
-                    return;
-                
-                string pixmaps_path = IO.Path.Combine (SparkleUI.AssetsPath, "pixmaps");
-                string icons_path  = new string [] {SparkleUI.AssetsPath, "icons",
-                    "hicolor", "12x12", "status"}.Combine ();
+            html = html.Replace ("<!-- $body-font-size -->", (double) (Style.FontDescription.Size / 1024 + 3) + "px");
+            html = html.Replace ("<!-- $day-entry-header-font-size -->", (Style.FontDescription.Size / 1024 + 3) + "px");
+            html = html.Replace ("<!-- $a-color -->", "#0085cf");
+            html = html.Replace ("<!-- $a-hover-color -->", "#009ff8");
+            html = html.Replace ("<!-- $body-font-family -->", "\"" + Style.FontDescription.Family + "\"");
+            html = html.Replace ("<!-- $body-color -->", SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Normal)));
+            html = html.Replace ("<!-- $body-background-color -->", SparkleUIHelpers.GdkColorToHex (new TreeView ().Style.Base (StateType.Normal)));
+            html = html.Replace ("<!-- $day-entry-header-background-color -->", SparkleUIHelpers.GdkColorToHex (Style.Background (StateType.Normal)));
+            html = html.Replace ("<!-- $secondary-font-color -->", SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Insensitive)));
+            html = html.Replace ("<!-- $small-color -->", SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Insensitive)));
+            html = html.Replace ("<!-- $small-font-size -->", "85%");
+            html = html.Replace ("<!-- $pixmaps-path -->", pixmaps_path);
+			html = html.Replace ("<!-- $document-added-background-image -->", "file://" + IO.Path.Combine (icons_path, "document-added.png"));
+            html = html.Replace ("<!-- $document-edited-background-image -->", "file://" + IO.Path.Combine (icons_path, "document-edited.png"));
+            html = html.Replace ("<!-- $document-deleted-background-image -->", "file://" + IO.Path.Combine (icons_path, "document-deleted.png"));
+            html = html.Replace ("<!-- $document-moved-background-image -->", "file://" + IO.Path.Combine (icons_path, "document-moved.png"));
+                    
+            this.spinner.Stop ();
 
-                html = html.Replace ("<!-- $body-font-size -->", (double) (Style.FontDescription.Size / 1024 + 3) + "px");
-                html = html.Replace ("<!-- $day-entry-header-font-size -->", (Style.FontDescription.Size / 1024 + 3) + "px");
-                html = html.Replace ("<!-- $a-color -->", "#0085cf");
-                html = html.Replace ("<!-- $a-hover-color -->", "#009ff8");
-                html = html.Replace ("<!-- $body-font-family -->", "\"" + Style.FontDescription.Family + "\"");
-                html = html.Replace ("<!-- $body-color -->", SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Normal)));
-                html = html.Replace ("<!-- $body-background-color -->", SparkleUIHelpers.GdkColorToHex (new TreeView ().Style.Base (StateType.Normal)));
-                html = html.Replace ("<!-- $day-entry-header-background-color -->", SparkleUIHelpers.GdkColorToHex (Style.Background (StateType.Normal)));
-                html = html.Replace ("<!-- $secondary-font-color -->", SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Insensitive)));
-                html = html.Replace ("<!-- $small-color -->", SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Insensitive)));
-             
-                html = html.Replace ("<!-- $pixmaps-path -->", pixmaps_path);
-                
-                html = html.Replace ("<!-- $document-added-background-image -->", 
-                    "file://" + IO.Path.Combine (icons_path, "document-added.png"));
+            this.web_view.NavigationRequested -= WebViewNavigationRequested;
+            this.web_view.LoadHtmlString (html, "file://");
+            this.web_view.NavigationRequested += WebViewNavigationRequested;
 
-                html = html.Replace ("<!-- $document-edited-background-image -->", 
-                    "file://" + IO.Path.Combine (icons_path, "document-edited.png"));
-                
-                html = html.Replace ("<!-- $document-deleted-background-image -->", 
-                    "file://" + IO.Path.Combine (icons_path, "document-deleted.png"));
-                
-                html = html.Replace ("<!-- $document-moved-background-image -->", 
-                    "file://" + IO.Path.Combine (icons_path, "document-moved.png"));
-                        
-                
-                Application.Invoke (delegate {
-                    this.spinner.Stop ();
-                                this.web_view.NavigationRequested -= WebViewNavigationRequested;
-                    this.web_view.LoadHtmlString (html, "file://");
-                                this.web_view.NavigationRequested += WebViewNavigationRequested;
-                    this.content_wrapper.Remove (this.content_wrapper.Child);
-                    this.content_wrapper.Add (this.scrolled_window);
-                    this.content_wrapper.ShowAll ();
-                });
-            }));
-
-            thread.Start ();
+            this.content_wrapper.Remove (this.content_wrapper.Child);
+            this.content_wrapper.Add (this.scrolled_window);
+            this.content_wrapper.ShowAll ();
         }
     }
 }

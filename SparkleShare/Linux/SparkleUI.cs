@@ -16,45 +16,26 @@
 
 
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
 
 using Gtk;
-using Mono.Unix;
-using Mono.Unix.Native;
 using SparkleLib;
 
 namespace SparkleShare {
 
     public class SparkleUI {
-        
-        public static SparkleStatusIcon StatusIcon;
-        public static SparkleEventLog EventLog;
-        public static SparkleBubbles Bubbles;
-        public static SparkleSetup Setup;
-        public static SparkleAbout About;
 
-        public static string AssetsPath =
-            new string [] {Defines.PREFIX, "share", "sparkleshare"}.Combine ();
+        public SparkleStatusIcon StatusIcon;
+        public SparkleEventLog EventLog;
+        public SparkleBubbles Bubbles;
+        public SparkleSetup Setup;
+        public SparkleAbout About;
 
-
-        // Short alias for the translations
-        public static string _(string s)
-        {
-            return Program._ (s);
-        }
+        public static string AssetsPath = Defines.INSTALL_DIR;
 
 
         public SparkleUI ()
         {
             Application.Init ();
-
-            // Use translations
-            Catalog.Init (Defines.GETTEXT_PACKAGE, Defines.LOCALE_DIR);
 
             Setup      = new SparkleSetup ();
             EventLog   = new SparkleEventLog ();
