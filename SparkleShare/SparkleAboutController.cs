@@ -19,23 +19,29 @@ using System;
 using System.Net;
 using System.Threading;
 
-using SparkleLib;
-
 namespace SparkleShare {
 
     public class SparkleAboutController {
 
         public event Action ShowWindowEvent = delegate { };
         public event Action HideWindowEvent = delegate { };
-        public event Action VersionUpToDateEvent = delegate { };
-        public event Action CheckingForNewVersionEvent = delegate { };
 
-        public event NewVersionEventDelegate NewVersionEvent = delegate { };
-        public delegate void NewVersionEventDelegate (string new_version_string);
+        public event UpdateLabelEventDelegate UpdateLabelEvent = delegate { };
+        public delegate void UpdateLabelEventDelegate (string text);
+
+        public readonly string WebsiteLinkAddress       = "http://www.sparkleshare.org/";
+        public readonly string CreditsLinkAddress       = "http://www.github.com/hbons/SparkleShare/tree/master/legal/AUTHORS";
+        public readonly string ReportProblemLinkAddress = "http://www.github.com/hbons/SparkleShare/issues";
+        public readonly string DebugLogLinkAddress      = "file://" + Program.Controller.ConfigPath;
 
         public string RunningVersion {
             get {
-                return SparkleBackend.Version;
+                string version = SparkleLib.SparkleBackend.Version;
+
+                if (version.EndsWith (".0"))
+                    version = version.Substring (0, version.Length - 2);
+
+                return version;
             }
         }
 
@@ -44,7 +50,7 @@ namespace SparkleShare {
         {
             Program.Controller.ShowAboutWindowEvent += delegate {
                 ShowWindowEvent ();
-                CheckForNewVersion ();
+                new Thread (() => CheckForNewVersion ()).Start ();
             };
         }
 
@@ -57,73 +63,23 @@ namespace SparkleShare {
 
         private void CheckForNewVersion ()
         {
-            CheckingForNewVersionEvent ();
+            UpdateLabelEvent ("Checking for updates...");
+            Thread.Sleep (500);
 
             WebClient web_client = new WebClient ();
             Uri uri = new Uri ("http://www.sparkleshare.org/version");
 
-            web_client.DownloadStringCompleted += delegate (object o, DownloadStringCompletedEventArgs args) {
-                if (args.Error != null)
-                    return;
-
-                string latest_version_string = args.Result.Trim ();
-                Thread.Sleep (750);
-
-                if (UpdateRequired (RunningVersion, latest_version_string))
-                    NewVersionEvent (latest_version_string);
+            try {
+                string latest_version = web_client.DownloadString (uri);
+            
+                if (new Version (latest_version) > new Version (RunningVersion))
+                    UpdateLabelEvent ("A newer version (" + latest_version + ") is available!");
                 else
-                    VersionUpToDateEvent ();                    
-            };
+                    UpdateLabelEvent ("You are running the latest version.");
 
-            web_client.DownloadStringAsync (uri);
-        }
-
-
-        private bool UpdateRequired (string running_version_string, string latest_version_string)
-        {
-            if (running_version_string == null)
-                throw new ArgumentNullException ("running_version_string");
-
-            if (string.IsNullOrWhiteSpace (running_version_string))
-                throw new ArgumentException ("running_version_string");
-
-            if (latest_version_string == null)
-                throw new ArgumentNullException ("latest_version_string");
-
-            if (string.IsNullOrWhiteSpace (latest_version_string))
-                throw new ArgumentException ("latest_version_string");
-
-            int running_major;
-            int running_minor;
-            int running_build;
-            try {
-                string[] running_split = running_version_string.Split ('.');
-                running_major = int.Parse (running_split [0]);
-                running_minor = int.Parse (running_split [1]);
-                running_build = int.Parse (running_split [2]);
-
-            } catch (Exception e) {
-                throw new FormatException ("running_version_string", e);
+            } catch {
+                UpdateLabelEvent ("Version check failed.");
             }
-
-            int latest_major;
-            int latest_minor;
-            int latest_build;
-            try {
-                string[] latest_split = latest_version_string.Split ('.');
-                latest_major = int.Parse (latest_split [0]);
-                latest_minor = int.Parse (latest_split [1]);
-                latest_build = int.Parse (latest_split [2]);
-
-            } catch (Exception e) {
-                throw new FormatException ("latest_version_string", e);
-            }
-
-            bool higher_major = latest_major > running_major;
-            bool higher_minor = latest_major == running_major && latest_minor > running_minor;
-            bool higher_build = latest_major == running_major && latest_minor == running_minor && latest_build > running_build;
-
-            return higher_major || higher_minor || higher_build;
         }
     }
 }

@@ -8,17 +8,19 @@ SparkleShare is an Open Source collaboration and sharing tool that is designed t
 |                    |                                                   |
 |-------------------:|:--------------------------------------------------|
 |       **Website**: | http://www.sparkleshare.org/                      |
-|     **Downloads**: | https://github.com/hbons/SparkleShare/downloads   |
-|   **Source code**: | https://github.com/hbons/SparkleShare             |
+|       **Twitter**: | https://www.twitter.com/SparkleShare              |
+|   **Development**: | https://github.com/hbons/SparkleShare             |
 |   **IRC channel**: | #sparkleshare on irc.gnome.org                    |
-|          **Wiki**: | http://github.com/hbons/SparkleShare/wiki/        |
-| **Report issues**: | http://github.com/hbons/SparkleShare/issues/      |
-|  **Translations**: | http://www.transifex.net/projects/p/sparkleshare/ |
 
 
 ### License
 
-SparkleShare is Open Source software and licensed under the `GNU General Public License version 3 or later`. You are welcome to change and redistribute it under certain conditions.For more information see the `legal/LICENSE` file.
+SparkleShare is Open Source software and licensed under the `GNU General Public License version 3 or later`. You are welcome to change and redistribute it under certain conditions.For more information see the `legal/License.txt` file.
+
+
+### Setting up a host
+
+You can use any host that runs Git. For a simple setup script, check out [Dazzle](https://github.com/hbons/Dazzle). If you need to manage a lot of projects and/or users it may be worth looking at [Gitlab](http://www.gitlabhq.com).
 
 
 ### Building...

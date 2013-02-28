@@ -14,17 +14,18 @@
 //   You should have received a copy of the GNU General Public License
 //   along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+
 using System;
+using System.Reflection;
+
+[assembly:AssemblyTitle ("SparkleLib")]
+[assembly:AssemblyVersion ("1.0.0")]
+[assembly:AssemblyCopyright ("Copyright (c) 2010 Hylke Bons and others")]
+[assembly:AssemblyTrademark ("SparkleShare is a trademark of SparkleShare Ltd.")]
 
 namespace SparkleLib {
 
-	public class Defines {
-
-		public const string VERSION         = "0.9.0";
-		public const string LOCALE_DIR      = "/home/carlos/staging/ss/share/locale";
-		public const string DATAROOTDIR     = "/home/carlos/staging/ss/share";
-		public const string GETTEXT_PACKAGE = "@GETTEXT_PACKAGE@";
-		public const string PREFIX          = "/home/carlos/staging/ss";
-	}
+    public class Defines {
+        public const string INSTALL_DIR = "/usr/share/sparkleshare";
+    }
 }
-

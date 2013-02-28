@@ -46,34 +46,31 @@ namespace SparkleShare {
 
     public class SparkleSetupController {
 
-        public event ShowWindowEventHandler ShowWindowEvent;
-        public delegate void ShowWindowEventHandler ();
+        public event Action ShowWindowEvent = delegate { };
+        public event Action HideWindowEvent = delegate { };
 
-        public event HideWindowEventHandler HideWindowEvent;
-        public delegate void HideWindowEventHandler ();
-
-        public event ChangePageEventHandler ChangePageEvent;
+        public event ChangePageEventHandler ChangePageEvent = delegate { };
         public delegate void ChangePageEventHandler (PageType page, string [] warnings);
         
-        public event UpdateProgressBarEventHandler UpdateProgressBarEvent;
+        public event UpdateProgressBarEventHandler UpdateProgressBarEvent = delegate { };
         public delegate void UpdateProgressBarEventHandler (double percentage);
 
-        public event UpdateSetupContinueButtonEventHandler UpdateSetupContinueButtonEvent;
+        public event UpdateSetupContinueButtonEventHandler UpdateSetupContinueButtonEvent = delegate { };
         public delegate void UpdateSetupContinueButtonEventHandler (bool button_enabled);
 
-        public event UpdateCryptoSetupContinueButtonEventHandler UpdateCryptoSetupContinueButtonEvent;
+        public event UpdateCryptoSetupContinueButtonEventHandler UpdateCryptoSetupContinueButtonEvent = delegate { };
         public delegate void UpdateCryptoSetupContinueButtonEventHandler (bool button_enabled);
 
-        public event UpdateCryptoPasswordContinueButtonEventHandler UpdateCryptoPasswordContinueButtonEvent;
+        public event UpdateCryptoPasswordContinueButtonEventHandler UpdateCryptoPasswordContinueButtonEvent = delegate { };
         public delegate void UpdateCryptoPasswordContinueButtonEventHandler (bool button_enabled);
 
-        public event UpdateAddProjectButtonEventHandler UpdateAddProjectButtonEvent;
+        public event UpdateAddProjectButtonEventHandler UpdateAddProjectButtonEvent = delegate { };
         public delegate void UpdateAddProjectButtonEventHandler (bool button_enabled);
 
-        public event ChangeAddressFieldEventHandler ChangeAddressFieldEvent;
+        public event ChangeAddressFieldEventHandler ChangeAddressFieldEvent = delegate { };
         public delegate void ChangeAddressFieldEventHandler (string text, string example_text, FieldState state);
 
-        public event ChangePathFieldEventHandler ChangePathFieldEvent;
+        public event ChangePathFieldEventHandler ChangePathFieldEvent = delegate { };
         public delegate void ChangePathFieldEventHandler (string text, string example_text, FieldState state);
 
         public readonly List<SparklePlugin> Plugins = new List<SparklePlugin> ();
@@ -92,21 +89,6 @@ namespace SparkleShare {
         public int SelectedPluginIndex {
             get {
                 return Plugins.IndexOf (SelectedPlugin);
-            }
-        }
-
-        public string GuessedUserName {
-            get {
-                return Program.Controller.CurrentUser.Name;
-            }
-        }
-
-        public string GuessedUserEmail {
-            get {
-                if (Program.Controller.CurrentUser.Email.Equals ("Unknown"))
-                    return "";
-                else
-                    return Program.Controller.CurrentUser.Email;
             }
         }
 
@@ -154,7 +136,8 @@ namespace SparkleShare {
                         Plugins.Insert (0, new SparklePlugin (xml_file_path));
 
                     } else if (xml_file_path.EndsWith ("ssnet.xml")) {
-                        // Plugins.Insert ((local_plugins_count + 1), new SparklePlugin (xml_file_path)); TODO: Skip this plugin for now
+                        // Plugins.Insert ((local_plugins_count + 1), new SparklePlugin (xml_file_path)); 
+                        // TODO: Skip this plugin for now
 
                     } else {
                         Plugins.Add (new SparklePlugin (xml_file_path));
@@ -164,32 +147,22 @@ namespace SparkleShare {
 
             SelectedPlugin = Plugins [0];
 
-
             Program.Controller.InviteReceived += delegate (SparkleInvite invite) {
                 PendingInvite = invite;
 
-                if (ChangePageEvent != null)
-                    ChangePageEvent (PageType.Invite, null);
-
-                if (ShowWindowEvent != null)
-                    ShowWindowEvent ();
+                ChangePageEvent (PageType.Invite, null);
+                ShowWindowEvent ();
             };
-
 
             Program.Controller.ShowSetupWindowEvent += delegate (PageType page_type) {
                 if (page_type == PageType.CryptoSetup || page_type == PageType.CryptoPassword) {
-                    if (ChangePageEvent != null)
-                        ChangePageEvent (page_type, null);
-                    
+                    ChangePageEvent (page_type, null);
                     return;
                 }
 
                 if (PendingInvite != null) {
                     WindowIsOpen = true;
-
-                    if (ShowWindowEvent != null)
-                        ShowWindowEvent ();
-
+                    ShowWindowEvent ();
                     return;
                 }
 
@@ -198,9 +171,7 @@ namespace SparkleShare {
                     this.current_page == PageType.CryptoSetup ||
                     this.current_page == PageType.CryptoPassword) {
 
-                    if (ShowWindowEvent != null)
-                        ShowWindowEvent ();
-
+                    ShowWindowEvent ();
                     return;
                 }
 
@@ -209,34 +180,24 @@ namespace SparkleShare {
                         if (this.current_page == PageType.Error ||
                             this.current_page == PageType.Finished ||
                             this.current_page == PageType.None) {
-                            
-                            if (ChangePageEvent != null)
-                                ChangePageEvent (PageType.Add, null);
+
+                            ChangePageEvent (PageType.Add, null);
                         }
 
-                        if (ShowWindowEvent != null)
-                            ShowWindowEvent ();
+                        ShowWindowEvent ();
 
                     } else if (!Program.Controller.FirstRun && TutorialPageNumber == 0) {
-                        if (ChangePageEvent != null)
-                            ChangePageEvent (PageType.Add, null);
-
                         WindowIsOpen = true;
-
-                        if (ShowWindowEvent != null)
-                            ShowWindowEvent ();
+                        ChangePageEvent (PageType.Add, null);
+                        ShowWindowEvent ();
                     }
 
                     return;
                 }
 
                 WindowIsOpen = true;
-
-                if (ChangePageEvent != null)
-                    ChangePageEvent (page_type, null);
-
-                if (ShowWindowEvent != null)
-                    ShowWindowEvent ();
+                ChangePageEvent (page_type, null);
+                ShowWindowEvent ();
             };
         }
 
@@ -252,9 +213,7 @@ namespace SparkleShare {
             this.fetch_prior_history = false;
 
             WindowIsOpen = false;
-
-            if (HideWindowEvent != null)
-                HideWindowEvent ();
+            HideWindowEvent ();
         }
 
 
@@ -263,11 +222,8 @@ namespace SparkleShare {
             full_name = full_name.Trim ();
             email     = email.Trim ();
 
-            bool fields_valid = (!string.IsNullOrEmpty (full_name) &&
-                                 IsValidEmail (email));
-
-            if (UpdateSetupContinueButtonEvent != null)
-                UpdateSetupContinueButtonEvent (fields_valid);
+            bool fields_valid = (!string.IsNullOrEmpty (full_name) && IsValidEmail (email));
+            UpdateSetupContinueButtonEvent (fields_valid);
         }
 
         
@@ -281,26 +237,36 @@ namespace SparkleShare {
         {
             Program.Controller.CurrentUser = new SparkleUser (full_name, email);
 
-            new Thread (
-                new ThreadStart (delegate {
-                    Program.Controller.GenerateKeyPair ();
-                    Program.Controller.ImportPrivateKey ();
-                })
-            ).Start ();
+            new Thread (() => {
+                string link_code_file_path = Path.Combine (Program.Controller.FoldersPath, "Your link code.txt");
+
+                if (File.Exists (link_code_file_path)) {
+                    string name = Program.Controller.CurrentUser.Name.Split (" ".ToCharArray ()) [0];
+
+                    if (name.EndsWith ("s"))
+                        name += "'";
+                    else
+                        name += "'s";
+
+                    string new_file_path = Path.Combine (Program.Controller.FoldersPath, name + " link code.txt");
+
+                    if (File.Exists (new_file_path))
+                        File.Delete (new_file_path);
+
+                    File.Move (link_code_file_path, new_file_path);
+                }
+
+            }).Start ();
 
             TutorialPageNumber = 1;
-
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Tutorial, null);
+            ChangePageEvent (PageType.Tutorial, null);
         }
 
 
         public void TutorialSkipped ()
         {
             TutorialPageNumber = 4;
-
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Tutorial, null);
+            ChangePageEvent (PageType.Tutorial, null);
         }
 
 
@@ -318,16 +284,13 @@ namespace SparkleShare {
                 TutorialPageNumber = 0;
 
                 WindowIsOpen = false;
-
-                if (HideWindowEvent != null)
-                    HideWindowEvent ();
+                HideWindowEvent ();
 
                 if (this.create_startup_item)
-                    Program.Controller.CreateStartupItem ();
+                    new Thread (() => Program.Controller.CreateStartupItem ()).Start ();
 
             } else {
-                if (ChangePageEvent != null)
-                    ChangePageEvent (PageType.Tutorial, null);
+                ChangePageEvent (PageType.Tutorial, null);
             }
         }
 
@@ -337,29 +300,23 @@ namespace SparkleShare {
             SelectedPlugin = Plugins [plugin_index];
 
             if (SelectedPlugin.Address != null) {
-                if (ChangeAddressFieldEvent != null)
-                    ChangeAddressFieldEvent (SelectedPlugin.Address, "", FieldState.Disabled);
+                ChangeAddressFieldEvent (SelectedPlugin.Address, "", FieldState.Disabled);
 
             } else if (SelectedPlugin.AddressExample != null) {
-                if (ChangeAddressFieldEvent != null)
-                    ChangeAddressFieldEvent (this.saved_address, SelectedPlugin.AddressExample, FieldState.Enabled);
+                ChangeAddressFieldEvent (this.saved_address, SelectedPlugin.AddressExample, FieldState.Enabled);
 
             } else {
-                if (ChangeAddressFieldEvent != null)
-                    ChangeAddressFieldEvent (this.saved_address, "", FieldState.Enabled);
+                ChangeAddressFieldEvent (this.saved_address, "", FieldState.Enabled);
             }
 
             if (SelectedPlugin.Path != null) {
-                if (ChangePathFieldEvent != null)
-                    ChangePathFieldEvent (SelectedPlugin.Path, "", FieldState.Disabled);
+                ChangePathFieldEvent (SelectedPlugin.Path, "", FieldState.Disabled);
 
             } else if (SelectedPlugin.PathExample != null) {
-                if (ChangePathFieldEvent != null)
-                    ChangePathFieldEvent (this.saved_remote_path, SelectedPlugin.PathExample, FieldState.Enabled);
+                ChangePathFieldEvent (this.saved_remote_path, SelectedPlugin.PathExample, FieldState.Enabled);
 
             } else {
-                if (ChangePathFieldEvent != null)
-                    ChangePathFieldEvent (this.saved_remote_path, "", FieldState.Enabled);
+                ChangePathFieldEvent (this.saved_remote_path, "", FieldState.Enabled);
             }
         }
 
@@ -381,23 +338,26 @@ namespace SparkleShare {
             this.saved_remote_path = remote_path;
 
             bool fields_valid = (!string.IsNullOrEmpty (address) &&
-                                 !string.IsNullOrEmpty (remote_path) &&
-                                 !remote_path.Contains ("\""));
+                !string.IsNullOrEmpty (remote_path) && !remote_path.Contains ("\""));
 
-            if (UpdateAddProjectButtonEvent != null)
-                UpdateAddProjectButtonEvent (fields_valid);
+            UpdateAddProjectButtonEvent (fields_valid);
         }
 
 
         public void AddPageCompleted (string address, string remote_path)
         {
-            SyncingFolder         = Path.GetFileNameWithoutExtension (remote_path);
+            SyncingFolder = Path.GetFileName (remote_path);
+
+            if (remote_path.EndsWith (".git"))
+                SyncingFolder = remote_path.Substring (0, remote_path.Length - 4);
+
+			SyncingFolder         = SyncingFolder.Replace ("-crypto", "");
+			SyncingFolder         = SyncingFolder.Replace ("_", " ");
             ProgressBarPercentage = 1.0;
 
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Syncing, null);
+            ChangePageEvent (PageType.Syncing, null);
 
-            address     = address.Trim ();
+            address     = Uri.EscapeUriString (address.Trim ());
             remote_path = remote_path.Trim ();
             remote_path = remote_path.TrimEnd ("/".ToCharArray ());
 
@@ -411,12 +371,11 @@ namespace SparkleShare {
             Program.Controller.FolderFetchError += AddPageFetchErrorDelegate;
             Program.Controller.FolderFetching   += SyncingPageFetchingDelegate;
 
-            new Thread (
-                new ThreadStart (delegate {
-                    Program.Controller.StartFetcher (address, SelectedPlugin.Fingerprint, remote_path,
-                        SelectedPlugin.AnnouncementsUrl, this.fetch_prior_history);
-                })
-            ).Start ();
+            new Thread (() => {
+                Program.Controller.StartFetcher (address, SelectedPlugin.Fingerprint, remote_path,
+                    SelectedPlugin.AnnouncementsUrl, this.fetch_prior_history);
+
+            }).Start ();
         }
 
         // The following private methods are
@@ -435,21 +394,19 @@ namespace SparkleShare {
                 try {
                     string address = remote_url.Replace (uri.AbsolutePath, "");
     
-                    new_plugin = SparklePlugin.Create (
-                        uri.Host, address, address, "", "", "/path/to/project");
+                    new_plugin = SparklePlugin.Create (uri.Host, address, address, "", "", "/path/to/project");
     
                     if (new_plugin != null) {
                         Plugins.Insert (1, new_plugin);
-                        SparkleHelpers.DebugInfo ("Controller", "Added plugin for " + uri.Host);
+                        SparkleLogger.LogInfo ("Controller", "Added plugin for " + uri.Host);
                     }
 
                 } catch {
-                    SparkleHelpers.DebugInfo ("Controller", "Failed adding plugin for " + uri.Host);
+                    SparkleLogger.LogInfo ("Controller", "Failed adding plugin for " + uri.Host);
                 }
             }
 
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Finished, warnings);
+            ChangePageEvent (PageType.Finished, warnings);
 
             Program.Controller.FolderFetched    -= AddPageFetchedDelegate;
             Program.Controller.FolderFetchError -= AddPageFetchErrorDelegate;
@@ -460,9 +417,8 @@ namespace SparkleShare {
         {
             SyncingFolder = "";
             PreviousUrl   = remote_url;
-           
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Error, errors);
+
+            ChangePageEvent (PageType.Error, errors);
 
             Program.Controller.FolderFetched    -= AddPageFetchedDelegate;
             Program.Controller.FolderFetchError -= AddPageFetchErrorDelegate;
@@ -472,34 +428,41 @@ namespace SparkleShare {
         private void SyncingPageFetchingDelegate (double percentage)
         {
             ProgressBarPercentage = percentage;
-
-            if (UpdateProgressBarEvent != null)
-                UpdateProgressBarEvent (ProgressBarPercentage);
+            UpdateProgressBarEvent (ProgressBarPercentage);
         }
 
 
         public void InvitePageCompleted ()
         {
-            SyncingFolder   = Path.GetFileNameWithoutExtension (PendingInvite.RemotePath);
+            SyncingFolder = Path.GetFileName (PendingInvite.RemotePath);
+
+            if (PendingInvite.RemotePath.EndsWith (".git"))
+                SyncingFolder = PendingInvite.RemotePath.Substring (0, PendingInvite.RemotePath.Length - 4);
+
+			SyncingFolder   = SyncingFolder.Replace ("-crypto", "");
+			SyncingFolder   = SyncingFolder.Replace ("_", " ");
             PreviousAddress = PendingInvite.Address;
             PreviousPath    = PendingInvite.RemotePath;
 
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Syncing, null);
+            ChangePageEvent (PageType.Syncing, null);
 
-            if (!PendingInvite.Accept ()) {
-                if (ChangePageEvent != null)
-                    ChangePageEvent (PageType.Error, null);
+            new Thread (() => {
+                if (!PendingInvite.Accept (Program.Controller.CurrentUser.PublicKey)) {
+                    PreviousUrl = PendingInvite.Address +
+                        PendingInvite.RemotePath.TrimStart ("/".ToCharArray ());
 
-                return;
-            }
+                    ChangePageEvent (PageType.Error, new string [] { "error: Failed to upload the public key" });
+                    return;
+                }
 
-            Program.Controller.FolderFetched    += InvitePageFetchedDelegate;
-            Program.Controller.FolderFetchError += InvitePageFetchErrorDelegate;
-            Program.Controller.FolderFetching   += SyncingPageFetchingDelegate;
+                Program.Controller.FolderFetched    += InvitePageFetchedDelegate;
+                Program.Controller.FolderFetchError += InvitePageFetchErrorDelegate;
+                Program.Controller.FolderFetching   += SyncingPageFetchingDelegate;
 
-            Program.Controller.StartFetcher (PendingInvite.Address, PendingInvite.Fingerprint,
-                PendingInvite.RemotePath, PendingInvite.AnnouncementsUrl, false); // TODO: checkbox on invite page
+                Program.Controller.StartFetcher (PendingInvite.Address, PendingInvite.Fingerprint,
+                    PendingInvite.RemotePath, PendingInvite.AnnouncementsUrl, false); // TODO: checkbox on invite page
+
+            }).Start ();
         }
 
         // The following private methods are
@@ -510,8 +473,7 @@ namespace SparkleShare {
             SyncingFolder   = "";
             PendingInvite = null;
 
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Finished, warnings);
+            ChangePageEvent (PageType.Finished, warnings);
 
             Program.Controller.FolderFetched    -= AddPageFetchedDelegate;
             Program.Controller.FolderFetchError -= AddPageFetchErrorDelegate;
@@ -523,8 +485,7 @@ namespace SparkleShare {
             SyncingFolder = "";
             PreviousUrl   = remote_url;
 
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Error, errors);
+            ChangePageEvent (PageType.Error, errors);
 
             Program.Controller.FolderFetched    -= AddPageFetchedDelegate;
             Program.Controller.FolderFetchError -= AddPageFetchErrorDelegate;
@@ -535,9 +496,6 @@ namespace SparkleShare {
         public void SyncingCancelled ()
         {
             Program.Controller.StopFetcher ();
-
-            if (ChangePageEvent == null)
-                return;
 
             if (PendingInvite != null)
                 ChangePageEvent (PageType.Invite, null);
@@ -558,18 +516,14 @@ namespace SparkleShare {
         public void CheckCryptoSetupPage (string password)
         {
             bool valid_password = (password.Length > 0 && !password.Contains (" "));
-
-            if (UpdateCryptoSetupContinueButtonEvent != null)
-                UpdateCryptoSetupContinueButtonEvent (valid_password);
+            UpdateCryptoSetupContinueButtonEvent (valid_password);
         }
 
 
         public void CheckCryptoPasswordPage (string password)
         {
             bool password_correct = Program.Controller.CheckPassword (password);
-
-            if (UpdateCryptoPasswordContinueButtonEvent != null)
-                UpdateCryptoPasswordContinueButtonEvent (password_correct);
+            UpdateCryptoPasswordContinueButtonEvent (password_correct);
         }
 
 
@@ -588,24 +542,28 @@ namespace SparkleShare {
         public void CryptoPasswordPageCompleted (string password)
         {
             ProgressBarPercentage = 100.0;
+            ChangePageEvent (PageType.Syncing, null);
 
-            if (ChangePageEvent != null)
-                ChangePageEvent (PageType.Syncing, null);
+            new Thread (() => {
+                Thread.Sleep (1000);
+                Program.Controller.FinishFetcher (password);
 
-            new Thread (
-                new ThreadStart (delegate {
-                    Thread.Sleep (1000);
-                    Program.Controller.FinishFetcher (password);
-                })
-            ).Start ();
+            }).Start ();
         }
 
 
-        public void OpenFolderClicked ()
+        public void ShowFilesClicked ()
         {
-            Program.Controller.OpenSparkleShareFolder (
-                Path.GetFileName (PreviousPath));
+            string folder_name = Path.GetFileName (PreviousPath);
+            folder_name        = folder_name.Replace ("_", " ");
 
+            if (PreviousPath.EndsWith ("-crypto"))
+                folder_name = folder_name.Replace ("-crypto", "");
+
+            if (PreviousPath.EndsWith ("-crypto.git"))
+                folder_name = folder_name.Replace ("-crypto.git", "");
+
+            Program.Controller.OpenSparkleShareFolder (folder_name);
             FinishPageCompleted ();
         }
 
@@ -619,20 +577,13 @@ namespace SparkleShare {
             this.fetch_prior_history = false;
 
             this.current_page = PageType.None;
-
-            if (HideWindowEvent != null)
-                HideWindowEvent ();
-
-            Program.Controller.UpdateState ();
+            HideWindowEvent ();
         }
 
 
         private bool IsValidEmail (string email)
         {
-            Regex regex = new Regex (@"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}$",
-                RegexOptions.IgnoreCase);
-
-            return regex.IsMatch (email);
+            return new Regex (@"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,4}$", RegexOptions.IgnoreCase).IsMatch (email);
         }
     }
 }

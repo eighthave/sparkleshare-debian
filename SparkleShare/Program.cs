@@ -18,9 +18,7 @@
 using System;
 using System.Threading;
 
-#if __MonoCS__
-using Mono.Unix;
-#endif
+using SparkleLib;
 
 namespace SparkleShare {
 
@@ -31,17 +29,6 @@ namespace SparkleShare {
         public static SparkleUI UI;
 
         private static Mutex program_mutex = new Mutex (false, "SparkleShare");
-		
-		
-        // Short alias for the translations
-        public static string _ (string s)
-        {
-            #if __MonoCS__
-            return Catalog.GetString (s);
-            #else
-            return s;
-            #endif
-        }
         
      
         #if !__MonoCS__
@@ -49,38 +36,44 @@ namespace SparkleShare {
         #endif
         public static void Main (string [] args)
         {
-            if (args.Length != 0 && !args [0].Equals ("start")) {
-                Console.WriteLine (" ");
-                Console.WriteLine ("SparkleShare is a collaboration and sharing tool that is ");
-                Console.WriteLine ("designed to keep things simple and to stay out of your way.");
-                Console.WriteLine (" ");
-                Console.WriteLine ("Version: " + SparkleLib.Defines.VERSION);
-                Console.WriteLine ("Copyright (C) 2010 Hylke Bons");
-                Console.WriteLine (" ");
-                Console.WriteLine ("This program comes with ABSOLUTELY NO WARRANTY.");
-                Console.WriteLine (" ");
-                Console.WriteLine ("This is free software, and you are welcome to redistribute it ");
-                Console.WriteLine ("under certain conditions. Please read the GNU GPLv3 for details.");
-                Console.WriteLine (" ");
-                Console.WriteLine ("Usage: sparkleshare [start|stop|restart]");
+            if (args.Length != 0 && !args [0].Equals ("start") &&
+                SparkleBackend.Platform != PlatformID.MacOSX &&
+                SparkleBackend.Platform != PlatformID.Win32NT) {
+
+                string n = Environment.NewLine;
+
+                Console.WriteLine (n +
+                    "SparkleShare is a collaboration and sharing tool that is" + n +
+                    "designed to keep things simple and to stay out of your way." + n +
+                    n +
+                    "Version: " + SparkleLib.SparkleBackend.Version + n +
+                    "Copyright (C) 2010 Hylke Bons" + n +
+                    "This program comes with ABSOLUTELY NO WARRANTY." + n +
+                    n +
+                    "This is free software, and you are welcome to redistribute it" + n +
+                    "under certain conditions. Please read the GNU GPLv3 for details." + n +
+                    n +
+                    "Usage: sparkleshare [start|stop|restart]");
 
                 Environment.Exit (-1);
             }
-			
-			// Only allow one instance of SparkleShare (on Windows)
-			if (!program_mutex.WaitOne (0, false)) {
-				Console.WriteLine ("SparkleShare is already running.");
-				Environment.Exit (-1);
-			}
 
-            // Initialize the controller this way so that
-            // there aren't any exceptions in the OS specific UI's
-            Controller = new SparkleController ();
-            Controller.Initialize ();
-        
-            if (Controller != null) {
+            // Only allow one instance of SparkleShare (on Windows)
+            if (!program_mutex.WaitOne (0, false)) {
+                Console.WriteLine ("SparkleShare is already running.");
+                Environment.Exit (-1);
+            }
+
+            try {
+                Controller = new SparkleController ();
+                Controller.Initialize ();
+
                 UI = new SparkleUI ();
                 UI.Run ();
+            
+            } catch (Exception e) {
+                SparkleLogger.WriteCrashReport (e);
+                Environment.Exit (-1);
             }
          
             #if !__MonoCS__

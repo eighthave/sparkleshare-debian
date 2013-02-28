@@ -25,16 +25,15 @@ namespace SparkleShare {
 
     public class SparkleController : SparkleControllerBase {
 
-
-        public override string PluginsPath {
-            get {
-                return SparkleHelpers.CombineMore (Defines.DATAROOTDIR, "sparkleshare", "plugins");
-            }
+        public SparkleController () : base ()
+        {
         }
 
 
-        public SparkleController () : base ()
-        {
+        public override string PluginsPath {
+            get {
+                return new string [] { Defines.INSTALL_DIR, "plugins" }.Combine ();
+            }
         }
 
 
@@ -43,9 +42,7 @@ namespace SparkleShare {
         public override void CreateStartupItem ()
         {
             string autostart_path = Path.Combine (
-                Environment.GetFolderPath (Environment.SpecialFolder.ApplicationData),
-                "autostart"
-            );
+                Environment.GetFolderPath (Environment.SpecialFolder.ApplicationData), "autostart");
 
             string desktopfile_path = Path.Combine (autostart_path, "sparkleshare.desktop");
 
@@ -64,10 +61,10 @@ namespace SparkleShare {
                         "X-GNOME-Autostart-enabled=true\n" +
                         "Categories=Network");
 
-                    SparkleHelpers.DebugInfo ("Controller", "Added SparkleShare to login items");
+                    SparkleLogger.LogInfo ("Controller", "Added SparkleShare to login items");
 
                 } catch (Exception e) {
-                    SparkleHelpers.DebugInfo ("Controller", "Failed adding SparkleShare to login items: " + e.Message);
+                    SparkleLogger.LogInfo ("Controller", "Failed adding SparkleShare to login items: " + e.Message);
                 }
             }
         }
@@ -89,10 +86,8 @@ namespace SparkleShare {
                 process.Start ();
                 process.WaitForExit ();
 
-
                 // ...and enable it
-                process.StartInfo.Arguments =
-                    "-s /desktop/gnome/url-handlers/sparkleshare/enabled --type Boolean true";
+                process.StartInfo.Arguments = "-s /desktop/gnome/url-handlers/sparkleshare/enabled --type Boolean true";
 
                 process.Start ();
                 process.WaitForExit ();
@@ -108,22 +103,16 @@ namespace SparkleShare {
         public override void AddToBookmarks ()
         {
             string bookmarks_file_path   = Path.Combine (SparkleConfig.DefaultConfig.HomePath, ".gtk-bookmarks");
-            string sparkleshare_bookmark = "file://" + SparkleConfig.DefaultConfig.FoldersPath + " SparkleShare";
+            string sparkleshare_bookmark = "file://" + FoldersPath + " SparkleShare";
 
             if (File.Exists (bookmarks_file_path)) {
-                StreamReader reader = new StreamReader (bookmarks_file_path);
-                string bookmarks = reader.ReadToEnd ();
-                reader.Close ();
+                string bookmarks = File.ReadAllText (bookmarks_file_path);
 
-                if (!bookmarks.Contains (sparkleshare_bookmark)) {
-                    TextWriter writer = File.AppendText (bookmarks_file_path);
-                    writer.WriteLine ("file://" + SparkleConfig.DefaultConfig.FoldersPath + " SparkleShare");
-                    writer.Close ();
-                }
+                if (!bookmarks.Contains (sparkleshare_bookmark))
+                    File.AppendAllText (bookmarks_file_path, "file://" + FoldersPath + " SparkleShare");
+
             } else {
-                StreamWriter writer = new StreamWriter (bookmarks_file_path);
-                writer.WriteLine ("file://" + SparkleConfig.DefaultConfig.FoldersPath + " SparkleShare");
-                writer.Close ();
+                File.WriteAllText (bookmarks_file_path, "file://" + FoldersPath + " SparkleShare");
             }
         }
 
@@ -131,75 +120,60 @@ namespace SparkleShare {
         // Creates the SparkleShare folder in the user's home folder
         public override bool CreateSparkleShareFolder ()
         {
+			bool folder_created = false;
+			
             if (!Directory.Exists (SparkleConfig.DefaultConfig.FoldersPath)) {
-        
-                Directory.CreateDirectory (SparkleConfig.DefaultConfig.FoldersPath);
-                SparkleHelpers.DebugInfo ("Controller", "Created '" + SparkleConfig.DefaultConfig.FoldersPath + "'");
+            	Directory.CreateDirectory (SparkleConfig.DefaultConfig.FoldersPath);
+				SparkleLogger.LogInfo ("Controller", "Created '" + SparkleConfig.DefaultConfig.FoldersPath + "'");
+				
+				folder_created = true;
+			}
 
-                string gvfs_command_path =
-                    new string [] {Path.VolumeSeparatorChar.ToString (),
-                        "usr", "bin", "gvfs-set-attribute"}.Combine ();
+            string gvfs_command_path = new string [] { Path.VolumeSeparatorChar.ToString (),
+            	"usr", "bin", "gvfs-set-attribute" }.Combine ();
+			
+            // Add a special icon to the SparkleShare folder
+            if (File.Exists (gvfs_command_path)) {
+                Process process = new Process ();
+                process.StartInfo.FileName = "gvfs-set-attribute";
 
-                // Add a special icon to the SparkleShare folder
-                if (File.Exists (gvfs_command_path)) {
-                    Process process = new Process ();
+                // Give the SparkleShare folder an icon name, so that it scales
+                process.StartInfo.Arguments = SparkleConfig.DefaultConfig.FoldersPath +
+                    " metadata::custom-icon-name 'sparkleshare'";
 
-                    process.StartInfo.RedirectStandardOutput = true;
-                    process.StartInfo.UseShellExecute        = false;
-                    process.StartInfo.FileName               = "gvfs-set-attribute";
-
-                    // Clear the custom (legacy) icon path
-                    process.StartInfo.Arguments = "-t unset " + SparkleConfig.DefaultConfig.FoldersPath + " metadata::custom-icon";
-                    process.Start ();
-                    process.WaitForExit ();
-
-                    // Give the SparkleShare folder an icon name, so that it scales
-                    process.StartInfo.Arguments = SparkleConfig.DefaultConfig.FoldersPath + " metadata::custom-icon-name 'folder-sparkleshare'";
-                    process.Start ();
-                    process.WaitForExit ();
-                }
-
-                return true;
+                process.Start ();
+                process.WaitForExit ();
             }
 
-            return false;
+            return folder_created;
         }
         
 
         public override string EventLogHTML {
             get {
-                string html_path = new string [] {Defines.PREFIX, "share",
-                    "sparkleshare", "html", "event-log.html"}.Combine ();
+                string html_path = new string [] { Defines.INSTALL_DIR, "html", "event-log.html" }.Combine ();
+                string jquery_file_path = new string [] { Defines.INSTALL_DIR, "html", "jquery.js" }.Combine ();
 
-                string html = File.ReadAllText (html_path);
-
-                string jquery_file_path = new string [] {Defines.PREFIX, "share",
-                    "sparkleshare", "html", "jquery.js"}.Combine ();
-
+                string html   = File.ReadAllText (html_path);
                 string jquery = File.ReadAllText (jquery_file_path);
-                html          = html.Replace ("<!-- $jquery -->", jquery);
-            
-                return html;
+
+                return html.Replace ("<!-- $jquery -->", jquery);
             }
         }
 
         
         public override string DayEntryHTML {
             get {
-                string path = new string [] {Defines.PREFIX,
-                    "share", "sparkleshare", "html", "day-entry.html"}.Combine ();
-            
-                return String.Join (Environment.NewLine, File.ReadAllLines (path));
+                string path = new string [] { Defines.INSTALL_DIR, "html", "day-entry.html" }.Combine ();
+                return File.ReadAllText (path);
             }
         }
 
         
         public override string EventEntryHTML {
             get {
-                string path = new string [] {Defines.PREFIX,
-                    "share", "sparkleshare", "html", "event-entry.html"}.Combine ();
-            
-                return String.Join (Environment.NewLine, File.ReadAllLines (path));
+                string path = new string [] { Defines.INSTALL_DIR, "html", "event-entry.html" }.Combine ();
+                return File.ReadAllText (path);
             }
         }
 
@@ -212,10 +186,16 @@ namespace SparkleShare {
 
         public override void OpenFile (string path)
         {
-            Process process = new Process ();
-            process.StartInfo.FileName = "xdg-open";
+            Process process             = new Process ();
+            process.StartInfo.FileName  = "xdg-open";
             process.StartInfo.Arguments = "\"" + path + "\"";
             process.Start ();
         }
+
+
+		public override void OpenWebsite (string url)
+		{
+			OpenFile (url);
+		}
     }
 }

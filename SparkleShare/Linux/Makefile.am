@@ -1,5 +1,4 @@
-SUBDIRS = Nautilus \
-	Pixmaps
+SUBDIRS = Pixmaps
 
 ASSEMBLY = SparkleShare
 TARGET = exe
@@ -18,6 +17,7 @@ SOURCES =  \
 	../SparkleEventLogController.cs \
 	../SparkleExtensions.cs \
 	../SparkleInvite.cs \
+	../SparkleKeys.cs \
 	../SparklePlugin.cs \
 	../SparkleSetupController.cs \
 	../SparkleStatusIconController.cs \
@@ -39,3 +39,7 @@ bin_SCRIPTS = sparkleshare
 Applicationsdir = $(datadir)/applications
 dist_Applications_DATA = sparkleshare.desktop \
 	sparkleshare-invite-opener.desktop
+
+install-data-hook:
+	test -f $(datadir)/applications/defaults.list && \
+	test -z $(DESTDIR) && update-desktop-database $(datadir)/applications || :
