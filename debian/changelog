@@ -1,3 +1,12 @@
+sparkleshare (1.0.0-1) unstable; urgency=low
+
+  * [9b28584] Imported Upstream version 1.0.0
+  * [7943d0f] Remove patch
+  * [4e04623] Fix the name of the news and trademark files
+  * [29653a9] Increase mono build dependency to 2.10 (Closes: #686006)
+
+ -- Carlos Martín Nieto <cmn@dwim.me>  Tue, 14 May 2013 08:33:16 +0100
+
 sparkleshare (0.9.0-2) unstable; urgency=low
 
   [ Chow Loong Jin ]
