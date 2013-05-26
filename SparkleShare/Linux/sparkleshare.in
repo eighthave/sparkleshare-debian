@@ -8,7 +8,7 @@ fi
 if [ "$XDG_RUNTIME_DIR" ]; then
   pidfile=${XDG_RUNTIME_DIR}/sparkleshare.pid
 else
-  pidfile=/tmp/sparkleshare-${USER}.pid
+  pidfile=~/.sparkleshare-$(hostname)-${USER}.pid
 fi
 
 start() {
@@ -63,8 +63,7 @@ case $1 in
     ;;
   open|--open)
     invite=`date -u +%N`
-    open=`echo $2 | sed s/sparkleshare:/https:/`
-    open=`echo $open | sed s/sparkleshare-unsafe:/http:/`
+    open=`echo $2 | sed s/sparkleshare:\/\/addProject//`
     curl --insecure --output ~/SparkleShare/$invite.xml $open
     ;;
   *)

@@ -38,27 +38,32 @@ namespace SparkleLib {
         HostIdentityChanged,
         AuthenticationFailed,
         DiskSpaceExceeded,
-        LockedFiles,
+        UnreadableFiles,
         NotFound
     }
 
 
     public abstract class SparkleRepoBase {
 
-        public static bool UseCustomWatcher = false;
+
+        public abstract bool SyncUp ();
+        public abstract bool SyncDown ();
+        public abstract void RestoreFile (string path, string revision, string target_file_path);
+        public abstract bool HasUnsyncedChanges { get; set; }
+        public abstract bool HasLocalChanges { get; }
+        public abstract bool HasRemoteChanges { get; }
 
         public abstract string CurrentRevision { get; }
         public abstract double Size { get; }
         public abstract double HistorySize { get; }
+
         public abstract List<string> ExcludePaths { get; }
-        public abstract bool HasUnsyncedChanges { get; set; }
-        public abstract bool HasLocalChanges { get; }
-        public abstract bool HasRemoteChanges { get; }
-        public abstract bool SyncUp ();
-        public abstract bool SyncDown ();
         public abstract List<SparkleChangeSet> GetChangeSets ();
         public abstract List<SparkleChangeSet> GetChangeSets (string path);
-        public abstract void RestoreFile (string path, string revision, string target_file_path);
+
+
+        public static bool UseCustomWatcher = false;
+
 
         public event SyncStatusChangedEventHandler SyncStatusChanged = delegate { };
         public delegate void SyncStatusChangedEventHandler (SyncStatus new_status);
@@ -83,7 +88,7 @@ namespace SparkleLib {
         public double ProgressPercentage { get; private set; }
         public double ProgressSpeed { get; private set; }
 
-        public string Identifier {
+        public virtual string Identifier {
             get {
                 if (this.identifier != null)
                     return this.identifier;
@@ -114,12 +119,6 @@ namespace SparkleLib {
             }
         }
 
-        public virtual string [] UnsyncedFilePaths {
-            get {
-                return new string [0];
-            }
-        }
-
 
         protected SparkleConfig local_config;
 
@@ -127,16 +126,13 @@ namespace SparkleLib {
         private string identifier;
         private SparkleListenerBase listener;
         private SparkleWatcher watcher;
-        private TimeSpan poll_interval            = PollInterval.Short;
-        private DateTime last_poll                = DateTime.Now;
-        private DateTime progress_last_change     = DateTime.Now;
-        private TimeSpan progress_change_interval = new TimeSpan (0, 0, 0, 1);
-        private Timers.Timer remote_timer         = new Timers.Timer () { Interval = 5000 };
+        private TimeSpan poll_interval        = PollInterval.Short;
+        private DateTime last_poll            = DateTime.Now;
+        private DateTime progress_last_change = DateTime.Now;
+        private Timers.Timer remote_timer     = new Timers.Timer () { Interval = 5000 };
 
         private bool is_syncing {
-            get {
-                return (Status == SyncStatus.SyncUp || Status == SyncStatus.SyncDown || IsBuffering);
-            }
+            get { return (Status == SyncStatus.SyncUp || Status == SyncStatus.SyncDown || IsBuffering); }
         }
 
         private static class PollInterval {
@@ -162,9 +158,7 @@ namespace SparkleLib {
 			string identifier_file_path = Path.Combine (LocalPath, ".sparkleshare");
 			File.SetAttributes (identifier_file_path, FileAttributes.Hidden);
 
-            SyncStatusChanged += delegate (SyncStatus status) {
-                Status = status;
-            };
+            SyncStatusChanged += delegate (SyncStatus status) { Status = status; };
 
             if (!UseCustomWatcher)
                 this.watcher = new SparkleWatcher (LocalPath);
@@ -176,20 +170,23 @@ namespace SparkleLib {
                     return;
 
                 int time_comparison = DateTime.Compare (this.last_poll, DateTime.Now.Subtract (this.poll_interval));
-                bool time_to_poll =  (time_comparison < 0);
 
-                if (time_to_poll && !is_syncing) {
+                if (time_comparison < 0) {
+                    if (HasUnsyncedChanges && !this.is_syncing)
+                        SyncUpBase ();
+
                     this.last_poll = DateTime.Now;
 
-                    if (HasRemoteChanges) {
-                        this.poll_interval = PollInterval.Long;
+                    if (HasRemoteChanges && !this.is_syncing)
                         SyncDownBase ();
-                    }
+
+                    if (this.listener.IsConnected)
+                        this.poll_interval = PollInterval.Long;
                 }
 
                 // In the unlikely case that we haven't synced up our
                 // changes or the server was down, sync up again
-                if (HasUnsyncedChanges && !is_syncing && Error == ErrorStatus.None)
+                if (HasUnsyncedChanges && !this.is_syncing && Error == ErrorStatus.None)
                     SyncUpBase ();
             };
         }
@@ -197,18 +194,20 @@ namespace SparkleLib {
 
         public void Initialize ()
         {
-            if (!UseCustomWatcher)
-                this.watcher.ChangeEvent += OnFileActivity;
-
-            // Sync up everything that changed
-            // since we've been offline
+            // Sync up everything that changed since we've been offline
             new Thread (() => {
-                if (!this.is_syncing && (HasLocalChanges || HasUnsyncedChanges)) {
-                    SyncUpBase ();
+                if (HasRemoteChanges)
+                    SyncDownBase ();
 
-                    while (HasLocalChanges && !this.is_syncing)
+                if (HasUnsyncedChanges || HasLocalChanges) {
+                    do {
                         SyncUpBase ();
+
+                    } while (HasLocalChanges);
                 }
+                
+                if (!UseCustomWatcher)
+                    this.watcher.ChangeEvent += OnFileActivity;
 
                 this.remote_timer.Start ();
             
@@ -245,12 +244,12 @@ namespace SparkleLib {
             SparkleLogger.LogInfo ("Local", Name + " | Activity detected, waiting for it to settle...");
 
             List<double> size_buffer = new List<double> ();
+            DirectoryInfo info = new DirectoryInfo (LocalPath);
 
             do {
                 if (size_buffer.Count >= 4)
                     size_buffer.RemoveAt (0);
 
-                DirectoryInfo info = new DirectoryInfo (LocalPath);
                 size_buffer.Add (CalculateSize (info));
 
                 if (size_buffer.Count >= 4 &&
@@ -264,6 +263,9 @@ namespace SparkleLib {
                     if (HasLocalChanges) {
                         do {
                             SyncUpBase ();
+
+                            if (Error == ErrorStatus.UnreadableFiles)
+                                return;
 
                         } while (HasLocalChanges);
 
@@ -286,11 +288,8 @@ namespace SparkleLib {
         {
             if (Error == ErrorStatus.None || this.is_syncing)
                 return;
-            
-            if (Error == ErrorStatus.LockedFiles)
-                SyncDownBase ();
-            else
-                SyncUpBase ();
+
+            SyncUpBase ();
         }
 
 
@@ -306,7 +305,7 @@ namespace SparkleLib {
                 return;
 
             // Only trigger the ProgressChanged event once per second
-            if (DateTime.Compare (this.progress_last_change, DateTime.Now.Subtract (this.progress_change_interval)) >= 0)
+            if (DateTime.Compare (this.progress_last_change, DateTime.Now.Subtract (new TimeSpan (0, 0, 0, 1))) >= 0)
                 return;
 
             if (progress_percentage == 100.0)
@@ -350,8 +349,8 @@ namespace SparkleLib {
                 if (Error == ErrorStatus.None && SyncUp ()) {
                     HasUnsyncedChanges = false;
 
-                    SyncStatusChanged (SyncStatus.Idle);
                     this.listener.Announce (new SparkleAnnouncement (Identifier, CurrentRevision));
+                    SyncStatusChanged (SyncStatus.Idle);
 
                 } else {
                     this.poll_interval = PollInterval.Short;
@@ -386,7 +385,10 @@ namespace SparkleLib {
 
                 ChangeSets = GetChangeSets ();
 
-                if (!pre_sync_revision.Equals (CurrentRevision) && ChangeSets != null && ChangeSets.Count > 0) {
+                if (!pre_sync_revision.Equals (CurrentRevision) &&
+                    ChangeSets != null && ChangeSets.Count > 0 &&
+                    !ChangeSets [0].User.Name.Equals (this.local_config.User.Name)) {
+
                     bool emit_change_event = true;
 
                     foreach (SparkleChange change in ChangeSets [0].Changes) {
@@ -406,8 +408,8 @@ namespace SparkleLib {
                 if (HasUnsyncedChanges) {
                     SyncStatusChanged (SyncStatus.SyncUp);
                     
-                    SyncUp ();
-                    HasUnsyncedChanges = false;
+                    if (SyncUp ())
+                        HasUnsyncedChanges = false;
                 }
 
                 SyncStatusChanged (SyncStatus.Idle);
@@ -422,10 +424,10 @@ namespace SparkleLib {
             ProgressPercentage = 0.0;
             ProgressSpeed      = 0.0;
 
+            SyncStatusChanged (SyncStatus.Idle);
+
             if (!UseCustomWatcher)
                 this.watcher.Enable ();
-
-            SyncStatusChanged (SyncStatus.Idle);
         }
 
 
@@ -433,97 +435,58 @@ namespace SparkleLib {
         {
             this.listener = SparkleListenerFactory.CreateListener (Name, Identifier);
 
-            if (this.listener.IsConnected) {
+            if (this.listener.IsConnected)
                 this.poll_interval = PollInterval.Long;
 
-                new Thread (() => {
-                    if (!this.is_syncing && !HasLocalChanges && HasRemoteChanges)
-                        SyncDownBase ();
-
-                }).Start ();
-            }
-
-            this.listener.Connected            += ListenerConnectedDelegate;
             this.listener.Disconnected         += ListenerDisconnectedDelegate;
             this.listener.AnnouncementReceived += ListenerAnnouncementReceivedDelegate;
 
-            // Start listening
             if (!this.listener.IsConnected && !this.listener.IsConnecting)
                 this.listener.Connect ();
         }
 
 
-        // Stop polling when the connection to the irc channel is succesful
-        private void ListenerConnectedDelegate ()
-        {
-            this.poll_interval = PollInterval.Long;
-            this.last_poll     = DateTime.Now;
-
-            if (!this.is_syncing) {
-                // Check for changes manually one more time
-                if (HasRemoteChanges)
-                    SyncDownBase ();
-
-                // Push changes that were made since the last disconnect
-                if (HasUnsyncedChanges)
-                    SyncUpBase ();
-            }
-        }
-
-
-        // Start polling when the connection to the channel is lost
         private void ListenerDisconnectedDelegate ()
         {
             this.poll_interval = PollInterval.Short;
-            SparkleLogger.LogInfo (Name, "Falling back to polling");
+            SparkleLogger.LogInfo (Name, "Falling back to regular polling");
         }
 
 
-        // Fetch changes when there is an announcement
         private void ListenerAnnouncementReceivedDelegate (SparkleAnnouncement announcement)
         {
             string identifier = Identifier;
 
-            if (announcement.FolderIdentifier.Equals (identifier) &&
-                !announcement.Message.Equals (CurrentRevision)) {
-
+            if (!announcement.FolderIdentifier.Equals (identifier))
+                return;
+                
+            if (!announcement.Message.Equals (CurrentRevision)) {
                 while (this.is_syncing)
                     Thread.Sleep (100);
 
                 SparkleLogger.LogInfo (Name, "Syncing due to announcement");
                 SyncDownBase ();
-
-            } else {
-                if (announcement.FolderIdentifier.Equals (identifier))
-                    SparkleLogger.LogInfo (Name, "Not syncing, message is for current revision");
             }
         }
 
 
         // Recursively gets a folder's size in bytes
-        private double CalculateSize (DirectoryInfo parent)
+        private long CalculateSize (DirectoryInfo parent)
         {
-            if (!Directory.Exists (parent.ToString ()))
-                return 0;
-
-            double size = 0;
-
             if (ExcludePaths.Contains (parent.Name))
                 return 0;
 
+            long size = 0;
+
             try {
-                foreach (FileInfo file in parent.GetFiles ()) {
-                    if (!file.Exists)
-                        return 0;
-
-                    size += file.Length;
-                }
-
                 foreach (DirectoryInfo directory in parent.GetDirectories ())
                     size += CalculateSize (directory);
 
-            } catch (Exception) {
-                return 0;
+                foreach (FileInfo file in parent.GetFiles ())
+                    size += file.Length;
+
+            } catch (Exception e) {
+                SparkleLogger.LogInfo ("Local", "Error calculating directory size", e);
             }
 
             return size;
@@ -535,7 +498,6 @@ namespace SparkleLib {
             this.remote_timer.Stop ();
             this.remote_timer.Dispose ();
 
-            this.listener.Connected            -= ListenerConnectedDelegate;
             this.listener.Disconnected         -= ListenerDisconnectedDelegate;
             this.listener.AnnouncementReceived -= ListenerAnnouncementReceivedDelegate;
 

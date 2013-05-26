@@ -621,9 +621,9 @@ namespace SparkleShare {
                 }
 
                 case 4: {
-                    Header      = "Here's your unique link code";
-                    Description = "You'll need it whenever you want to link this computer to a host" +
-                        " (we keep a copy in your SparkleShare folder).";
+                    Header      = "Here's your unique client ID";
+                    Description = "You'll need it whenever you want to link this computer to a host. " +
+                        "You can also find it in the status icon menu.";
 
                     Button finish_button = new Button ("Finish");                            
                     VBox layout_vertical = new VBox (false, 0) { BorderWidth = 48 };
@@ -640,11 +640,7 @@ namespace SparkleShare {
                     check_button.Active = true;
 
                     
-                    copy_button.Clicked += delegate {
-                        Clipboard clip_board = Clipboard.Get (Gdk.Atom.Intern ("CLIPBOARD", false));
-                        clip_board.Text      = link_code_entry.Text;
-                    };
-                    
+                    copy_button.Clicked += delegate { Controller.CopyToClipboardClicked (); };
                     check_button.Toggled  += delegate { Controller.StartupItemChanged (check_button.Active); };
                     finish_button.Clicked += delegate { Controller.TutorialPageCompleted (); };
                     

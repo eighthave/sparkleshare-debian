@@ -96,7 +96,13 @@ namespace SparkleShare {
 
         public bool RecentEventsItemEnabled {
             get {
-                return (Folders.Length > 0);
+                return (Program.Controller.Repositories.Length > 0);
+            }
+        }
+
+        public bool LinkCodeItemEnabled {
+            get {
+                return !string.IsNullOrEmpty (Program.Controller.CurrentUser.PublicKey);
             }
         }
 
@@ -236,6 +242,12 @@ namespace SparkleShare {
         }
 
 
+        public void CopyToClipboardClicked ()
+        {
+            Program.Controller.CopyToClipboard (Program.Controller.CurrentUser.PublicKey);
+        }
+
+
         public void AboutClicked ()
         {
             Program.Controller.ShowAboutWindow ();
@@ -248,39 +260,43 @@ namespace SparkleShare {
         }
 
 
+        private Object folders_lock = new Object ();
+
         private void UpdateFolders ()
         {
-            List<string> folders = new List<string> ();
-            List<string> folder_errors = new List<string> ();
+            lock (this.folders_lock) {
+                List<string> folders = new List<string> ();
+                List<string> folder_errors = new List<string> ();
 
-            foreach (SparkleRepoBase repo in Program.Controller.Repositories) {
-                folders.Add (repo.Name);
-                
-                if (repo.Error == ErrorStatus.HostUnreachable) {
-                    folder_errors.Add ("Can't reach the host");
+                foreach (SparkleRepoBase repo in Program.Controller.Repositories) {
+                    folders.Add (repo.Name);
                     
-                } else if (repo.Error == ErrorStatus.HostIdentityChanged) {
-                    folder_errors.Add ("The host's identity has changed");
-                    
-                } else if (repo.Error == ErrorStatus.AuthenticationFailed) {
-                    folder_errors.Add ("Authentication failed");
-                    
-                } else if (repo.Error == ErrorStatus.DiskSpaceExceeded) {
-                    folder_errors.Add ("Host is out of disk space");
-                    
-                } else if (repo.Error == ErrorStatus.LockedFiles) {
-                    folder_errors.Add ("Some local files are locked or in use");
+                    if (repo.Error == ErrorStatus.HostUnreachable) {
+                        folder_errors.Add ("Can't reach the host");
+                        
+                    } else if (repo.Error == ErrorStatus.HostIdentityChanged) {
+                        folder_errors.Add ("The host's identity has changed");
+                        
+                    } else if (repo.Error == ErrorStatus.AuthenticationFailed) {
+                        folder_errors.Add ("Authentication failed");
+                        
+                    } else if (repo.Error == ErrorStatus.DiskSpaceExceeded) {
+                        folder_errors.Add ("Host is out of disk space");
+                        
+                    } else if (repo.Error == ErrorStatus.UnreadableFiles) {
+                        folder_errors.Add ("Some local files are unreadable or in use");
 
-                } else if (repo.Error == ErrorStatus.NotFound) {
-                    folder_errors.Add ("Project doesn't exist on host");  
-                
-                } else {
-                    folder_errors.Add ("");
+                    } else if (repo.Error == ErrorStatus.NotFound) {
+                        folder_errors.Add ("Project doesn't exist on host");  
+                    
+                    } else {
+                        folder_errors.Add ("");
+                    }
                 }
-            }
 
-            Folders = folders.ToArray ();
-            FolderErrors = folder_errors.ToArray ();
+                Folders = folders.ToArray ();
+                FolderErrors = folder_errors.ToArray ();
+            }
         }
     }
 }
