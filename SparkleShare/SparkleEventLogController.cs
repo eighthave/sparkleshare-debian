@@ -335,8 +335,14 @@ namespace SparkleShare {
                 return GetLog ();
 
             foreach (SparkleRepoBase repo in Program.Controller.Repositories) {
-                if (repo.Name.Equals (name))
-                    return repo.ChangeSets;
+                if (repo.Name.Equals (name)) {
+                    List<SparkleChangeSet> change_sets = repo.ChangeSets;
+
+                    if (change_sets != null)
+                        return change_sets;
+                    else
+                        break;
+                }
             }
 
             return new List<SparkleChangeSet> ();
@@ -397,9 +403,10 @@ namespace SparkleShare {
 
         public string GetHTMLLog (List<SparkleChangeSet> change_sets)
         {
-            if (change_sets.Count == 0)
-                return "";
-			
+            if (change_sets == null || change_sets.Count == 0)
+                return Program.Controller.EventLogHTML.Replace ("<!-- $event-log-content -->",
+                    "<div class='day-entry'><div class='day-entry-header'>This project does not keep a history.</div></div>");
+
             List <ActivityDay> activity_days = new List <ActivityDay> ();
 
             change_sets.Sort ((x, y) => (x.Timestamp.CompareTo (y.Timestamp)));
@@ -489,8 +496,10 @@ namespace SparkleShare {
                         .Replace ("<!-- $event-url -->", change_set.RemoteUrl.ToString ())
                         .Replace ("<!-- $event-revision -->", change_set.Revision);
 
-                    if (this.selected_folder == null) 
+                    if (this.selected_folder == null) {
                         event_entries = event_entries.Replace ("<!-- $event-folder -->", " @ " + change_set.Folder.Name);
+                        event_entries = event_entries.Replace ("<!-- $event-folder-url -->", change_set.Folder.FullPath);
+                    }
                 }
 
                 string day_entry   = "";
@@ -557,7 +566,7 @@ namespace SparkleShare {
                 if (string.IsNullOrEmpty (crumb))
                     continue;
 
-                string crumb_path = Path.Combine (new_path_root, crumb);
+                string crumb_path = SafeCombine (new_path_root, crumb);
 
                 if (Directory.Exists (crumb_path)) {
                     link += "<a href='" + crumb_path + "'>" + crumb + Path.DirectorySeparatorChar + "</a>";
@@ -575,11 +584,25 @@ namespace SparkleShare {
                     previous_was_folder = false;
                 }
 
-                new_path_root = Path.Combine (new_path_root, crumb);
+                new_path_root = SafeCombine (new_path_root, crumb);
                 i++;
             }
 
             return link;
+        }
+
+
+        private string SafeCombine (string path1, string path2)
+        {
+            string result = path1;
+            
+            if (!result.EndsWith (Path.DirectorySeparatorChar.ToString ()))
+                result += Path.DirectorySeparatorChar;
+
+            if (path2.StartsWith (Path.DirectorySeparatorChar.ToString ()))
+                path2 = path2.Substring (1);
+
+            return result + path2;
         }
 
 

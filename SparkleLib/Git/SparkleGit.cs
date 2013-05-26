@@ -83,6 +83,7 @@ namespace SparkleLib.Git {
         protected string LocateCommand (string name)
         {
             string [] possible_command_paths = new string [] {
+                Defines.INSTALL_DIR + "/bin/" + name,
                 "/usr/bin/" + name,
                 "/usr/local/bin/" + name,
                 "/opt/local/bin/" + name
@@ -115,6 +116,11 @@ namespace SparkleLib.Git {
             StartInfo.UseShellExecute        = false;
             StartInfo.WorkingDirectory       = path;
             StartInfo.CreateNoWindow         = true;
+
+            if (StartInfo.EnvironmentVariables.ContainsKey ("LANG"))
+                StartInfo.EnvironmentVariables ["LANG"] = "en_US";
+            else
+                StartInfo.EnvironmentVariables.Add ("LANG", "en_US");
 
             if (string.IsNullOrEmpty (ExecPath))
                 StartInfo.Arguments = args;

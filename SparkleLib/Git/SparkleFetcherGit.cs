@@ -17,16 +17,15 @@
 
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
-
 using SparkleLib;
 
 namespace SparkleLib.Git {
 
-    // Sets up a fetcher that can get remote folders
-    public class SparkleFetcher : SparkleFetcherBase {
+    public class SparkleFetcher : SparkleFetcherSSH {
 
         private SparkleGit git;
         private bool use_git_bin;
@@ -62,10 +61,11 @@ namespace SparkleLib.Git {
         }
 
 
-        public SparkleFetcher (string server, string required_fingerprint, string remote_path,
-            string target_folder, bool fetch_prior_history) : base (server, required_fingerprint,
-                remote_path, target_folder, fetch_prior_history)
+        public SparkleFetcher (SparkleFetcherInfo info) : base (info)
         {
+            if (RemoteUrl.ToString ().StartsWith ("ssh+"))
+                RemoteUrl = new Uri ("ssh" + RemoteUrl.ToString ().Substring (RemoteUrl.ToString ().IndexOf ("://")));
+
             Uri uri = RemoteUrl;
 
             if (!uri.Scheme.Equals ("ssh") && !uri.Scheme.Equals ("https") &&
@@ -101,13 +101,15 @@ namespace SparkleLib.Git {
                 this.use_git_bin = false; // TODO
             }
 
-            TargetFolder = target_folder;
-            RemoteUrl    = uri;
+            RemoteUrl = uri;
         }
 
 
         public override bool Fetch ()
         {
+            if (!base.Fetch ())
+                return false;
+
             if (FetchPriorHistory) {
                 this.git = new SparkleGit (SparkleConfig.DefaultConfig.TmpPath,
                     "clone --progress --no-checkout \"" + RemoteUrl + "\" \"" + TargetFolder + "\"");
@@ -132,7 +134,7 @@ namespace SparkleLib.Git {
                 
                 double number = 0.0;
                 if (match.Success) {
-                    number = double.Parse (match.Groups [1].Value);
+                    number = double.Parse (match.Groups [1].Value, new CultureInfo ("en-US"));
                     
                     // The cloning progress consists of two stages: the "Compressing 
                     // objects" stage which we count as 20% of the total progress, and 
@@ -187,8 +189,6 @@ namespace SparkleLib.Git {
                 InstallConfiguration ();
                 InstallExcludeRules ();
                 InstallAttributeRules ();
-
-                AddWarnings ();
 
                 return true;
 
@@ -309,6 +309,7 @@ namespace SparkleLib.Git {
                 "core.autocrlf false", // Don't change file line endings
                 "core.precomposeunicode true", // Use the same Unicode form on all filesystems
                 "core.safecrlf false",
+                "core.exludesfile \"\"",
                 "core.packedGitLimit 128m", // Some memory limiting options
                 "core.packedGitWindowSize 128m",
                 "pack.deltaCacheSize 128m",
@@ -330,13 +331,9 @@ namespace SparkleLib.Git {
         public void InstallGitBinConfiguration ()
         {
             string [] settings = new string [] {
-                "core.bigFileThreshold 8g",
+                "core.bigFileThreshold 1024g",
                 "filter.bin.clean \"git bin clean %f\"",
-                "filter.bin.smudge \"git bin smudge\"",
-                "git-bin.chunkSize 1m",
-                "git-bin.s3bucket \"your bucket name\"",
-                "git-bin.s3key \"your key\"",
-                "git-bin.s3secretKey \"your secret key\""
+                "filter.bin.smudge \"git bin smudge\""
             };
 
             foreach (string setting in settings) {
@@ -376,7 +373,7 @@ namespace SparkleLib.Git {
                     "jpg", "jpeg", "png", "tiff", "gif", // Images
                     "flac", "mp3", "ogg", "oga", // Audio
                     "avi", "mov", "mpg", "mpeg", "mkv", "ogv", "ogx", "webm", // Video
-                    "zip", "gz", "bz", "bz2", "rpm", "deb", "tgz", "rar", "ace", "7z", "pak", "tar", "iso" // Archives
+                    "zip", "gz", "bz", "bz2", "rpm", "deb", "tgz", "rar", "ace", "7z", "pak", "tc", "iso", ".dmg" // Archives
                 };
 
                 foreach (string extension in extensions) {
@@ -389,21 +386,6 @@ namespace SparkleLib.Git {
             }
 
             writer.Close ();
-        }
-
-
-        private void AddWarnings ()
-        {
-            if (this.warnings.Count > 0)
-                return;
-
-            SparkleGit git = new SparkleGit (TargetFolder, "config --global core.excludesfile");
-            string output = git.StartAndReadStandardOutput ();
-
-            if (string.IsNullOrEmpty (output))
-                return;
-            else
-                this.warnings.Add ("You seem to have a system wide ‘gitignore’ file, this may affect SparkleShare files.");
         }
     }
 }

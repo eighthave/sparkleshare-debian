@@ -12,20 +12,18 @@ system_theme_icons = \
 	apps,sparkleshare-24.png \
 	apps,sparkleshare-256.png \
 	apps,sparkleshare-32.png \
-	apps,sparkleshare-48.png
+	apps,sparkleshare-48.png \
+    status,process-syncing-up-24.png \
+    status,process-syncing-down-24.png \
+    status,process-syncing-24.png \
+    status,process-syncing-error-24.png \
+    status,process-syncing-up-48.png \
+    status,process-syncing-down-48.png \
+    status,process-syncing-48.png \
+    status,process-syncing-error-48.png
 
 app_theme_icons = \
 	animations,process-working-22.png \
-	places,sparkleshare-16.png \
-	places,sparkleshare-22.png \
-	places,sparkleshare-24.png \
-	places,sparkleshare-256.png \
-	places,sparkleshare-32.png \
-	places,sparkleshare-48.png \
-	status,process-syncing-up-24.png \
-	status,process-syncing-down-24.png \
-	status,process-syncing-24.png \
-	status,process-syncing-error-24.png	\
 	status,document-added-12.png \
 	status,document-edited-12.png \
 	status,document-deleted-12.png \

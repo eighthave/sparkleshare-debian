@@ -37,12 +37,6 @@ namespace SparkleShare {
         private ApplicationIndicator indicator;
         #else
         private StatusIcon status_icon;
-
-        private Gdk.Pixbuf syncing_idle_image  = SparkleUIHelpers.GetIcon ("sparkleshare", 24);
-        private Gdk.Pixbuf syncing_up_image    = SparkleUIHelpers.GetIcon ("process-syncing-up", 24);
-        private Gdk.Pixbuf syncing_down_image  = SparkleUIHelpers.GetIcon ("process-syncing-down", 24);
-        private Gdk.Pixbuf syncing_image       = SparkleUIHelpers.GetIcon ("process-syncing", 24);
-        private Gdk.Pixbuf syncing_error_image = SparkleUIHelpers.GetIcon ("process-syncing-error", 24);
         #endif
 
 
@@ -53,8 +47,8 @@ namespace SparkleShare {
             this.indicator.IconName = "process-syncing-idle";
             this.indicator.Status   = Status.Active;
             #else
-			this.status_icon        = new StatusIcon ();
-            this.status_icon.Pixbuf = this.syncing_idle_image;
+			this.status_icon          = new StatusIcon ();
+            this.status_icon.IconName = "sparkleshare";
 
             this.status_icon.Activate  += ShowMenu; // Primary mouse button click
             this.status_icon.PopupMenu += ShowMenu; // Secondary mouse button click
@@ -69,7 +63,7 @@ namespace SparkleShare {
                         #if HAVE_APP_INDICATOR
                         this.indicator.IconName = "process-syncing-idle";
                         #else
-                        this.status_icon.Pixbuf = this.syncing_idle_image;
+                        this.status_icon.IconName = "sparkleshare";
                         #endif
                         break;
                     }
@@ -77,7 +71,7 @@ namespace SparkleShare {
                         #if HAVE_APP_INDICATOR
                         this.indicator.IconName = "process-syncing-up";
                         #else
-                        this.status_icon.Pixbuf = this.syncing_up_image;
+                        this.status_icon.IconName = "process-syncing-up";
                         #endif
                         break;
                     }
@@ -85,7 +79,7 @@ namespace SparkleShare {
                         #if HAVE_APP_INDICATOR
                         this.indicator.IconName = "process-syncing-down";
                         #else
-                        this.status_icon.Pixbuf = this.syncing_down_image;
+                        this.status_icon.IconName = "process-syncing-down";
                         #endif
                         break;
                     }
@@ -93,7 +87,7 @@ namespace SparkleShare {
                         #if HAVE_APP_INDICATOR
                         this.indicator.IconName = "process-syncing";
                         #else
-                        this.status_icon.Pixbuf = this.syncing_image;
+                        this.status_icon.IconName = "process-syncing";
                         #endif
                         break;
                     }
@@ -101,7 +95,7 @@ namespace SparkleShare {
                         #if HAVE_APP_INDICATOR
                         this.indicator.IconName = "process-syncing-error";
                         #else
-                        this.status_icon.Pixbuf = this.syncing_error_image;
+                        this.status_icon.IconName = "process-syncing-error";
                         #endif
                         break;
                     }
@@ -200,6 +194,22 @@ namespace SparkleShare {
 				});
             };
 
+            MenuItem link_code_item = new MenuItem ("Client ID");
+            
+            if (Controller.LinkCodeItemEnabled) {
+                link_code_item.Submenu = new Menu ();
+                
+                string link_code = Program.Controller.CurrentUser.PublicKey.Substring (0, 20) + "...";
+                MenuItem code_item = new MenuItem (link_code) { Sensitive = false };
+                
+                MenuItem copy_item = new MenuItem ("Copy to Clipboard");
+                copy_item.Activated += delegate { Controller.CopyToClipboardClicked (); };
+                
+                (link_code_item.Submenu as Menu).Add (code_item);
+                (link_code_item.Submenu as Menu).Add (new SeparatorMenuItem ());
+                (link_code_item.Submenu as Menu).Add (copy_item);
+            }
+
             MenuItem about_item = new MenuItem ("About SparkleShare");
             
             about_item.Activated              += delegate { Controller.AboutClicked (); };
@@ -212,6 +222,8 @@ namespace SparkleShare {
             (folder_item.Submenu as Menu).Add (add_item);
             (folder_item.Submenu as Menu).Add (new SeparatorMenuItem ());
             (folder_item.Submenu as Menu).Add (notify_item);
+            (folder_item.Submenu as Menu).Add (new SeparatorMenuItem ());
+            (folder_item.Submenu as Menu).Add (link_code_item);
             (folder_item.Submenu as Menu).Add (new SeparatorMenuItem ());
             (folder_item.Submenu as Menu).Add (about_item);
 

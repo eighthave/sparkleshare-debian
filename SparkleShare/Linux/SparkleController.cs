@@ -19,6 +19,8 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
+using Gtk;
+using Mono.Unix.Native;
 using SparkleLib;
 
 namespace SparkleShare {
@@ -124,8 +126,9 @@ namespace SparkleShare {
 			
             if (!Directory.Exists (SparkleConfig.DefaultConfig.FoldersPath)) {
             	Directory.CreateDirectory (SparkleConfig.DefaultConfig.FoldersPath);
+                Syscall.chmod (SparkleConfig.DefaultConfig.FoldersPath, (FilePermissions) 448); // 448 -> 700
+
 				SparkleLogger.LogInfo ("Controller", "Created '" + SparkleConfig.DefaultConfig.FoldersPath + "'");
-				
 				folder_created = true;
 			}
 
@@ -190,6 +193,13 @@ namespace SparkleShare {
             process.StartInfo.FileName  = "xdg-open";
             process.StartInfo.Arguments = "\"" + path + "\"";
             process.Start ();
+        }
+
+
+        public override void CopyToClipboard (string text)
+        {
+            Clipboard clipboard = Clipboard.Get (Gdk.Atom.Intern ("CLIPBOARD", false));
+            clipboard.Text      = text;
         }
 
 

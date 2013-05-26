@@ -371,11 +371,15 @@ namespace SparkleShare {
             Program.Controller.FolderFetchError += AddPageFetchErrorDelegate;
             Program.Controller.FolderFetching   += SyncingPageFetchingDelegate;
 
-            new Thread (() => {
-                Program.Controller.StartFetcher (address, SelectedPlugin.Fingerprint, remote_path,
-                    SelectedPlugin.AnnouncementsUrl, this.fetch_prior_history);
+            SparkleFetcherInfo info = new SparkleFetcherInfo {
+                Address           = address,
+                Fingerprint       = SelectedPlugin.Fingerprint,
+                RemotePath        = remote_path,
+                FetchPriorHistory = this.fetch_prior_history,
+                AnnouncementsUrl  = SelectedPlugin.AnnouncementsUrl
+            };
 
-            }).Start ();
+            new Thread (() => { Program.Controller.StartFetcher (info); }).Start ();
         }
 
         // The following private methods are
@@ -393,7 +397,6 @@ namespace SparkleShare {
 
                 try {
                     string address = remote_url.Replace (uri.AbsolutePath, "");
-    
                     new_plugin = SparklePlugin.Create (uri.Host, address, address, "", "", "/path/to/project");
     
                     if (new_plugin != null) {
@@ -448,9 +451,7 @@ namespace SparkleShare {
 
             new Thread (() => {
                 if (!PendingInvite.Accept (Program.Controller.CurrentUser.PublicKey)) {
-                    PreviousUrl = PendingInvite.Address +
-                        PendingInvite.RemotePath.TrimStart ("/".ToCharArray ());
-
+                    PreviousUrl = PendingInvite.Address + PendingInvite.RemotePath.TrimStart ("/".ToCharArray ());
                     ChangePageEvent (PageType.Error, new string [] { "error: Failed to upload the public key" });
                     return;
                 }
@@ -459,8 +460,15 @@ namespace SparkleShare {
                 Program.Controller.FolderFetchError += InvitePageFetchErrorDelegate;
                 Program.Controller.FolderFetching   += SyncingPageFetchingDelegate;
 
-                Program.Controller.StartFetcher (PendingInvite.Address, PendingInvite.Fingerprint,
-                    PendingInvite.RemotePath, PendingInvite.AnnouncementsUrl, false); // TODO: checkbox on invite page
+                SparkleFetcherInfo info = new SparkleFetcherInfo {
+                    Address           = PendingInvite.Address,
+                    Fingerprint       = PendingInvite.Fingerprint,
+                    RemotePath        = PendingInvite.RemotePath,
+                    FetchPriorHistory = false, // TODO: checkbox on invite page
+                    AnnouncementsUrl  = PendingInvite.AnnouncementsUrl
+                };
+
+                Program.Controller.StartFetcher (info);
 
             }).Start ();
         }
@@ -515,15 +523,15 @@ namespace SparkleShare {
 
         public void CheckCryptoSetupPage (string password)
         {
-            bool valid_password = (password.Length > 0 && !password.Contains (" "));
-            UpdateCryptoSetupContinueButtonEvent (valid_password);
+            bool is_valid_password = (password.Length > 0 && !password.StartsWith (" ") && !password.EndsWith (" "));
+            UpdateCryptoSetupContinueButtonEvent (is_valid_password);
         }
 
 
         public void CheckCryptoPasswordPage (string password)
         {
-            bool password_correct = Program.Controller.CheckPassword (password);
-            UpdateCryptoPasswordContinueButtonEvent (password_correct);
+            bool is_password_correct = Program.Controller.CheckPassword (password);
+            UpdateCryptoPasswordContinueButtonEvent (is_password_correct);
         }
 
 
@@ -549,6 +557,12 @@ namespace SparkleShare {
                 Program.Controller.FinishFetcher (password);
 
             }).Start ();
+        }
+
+
+        public void CopyToClipboardClicked ()
+        {
+            Program.Controller.CopyToClipboard (Program.Controller.CurrentUser.PublicKey);
         }
 
 

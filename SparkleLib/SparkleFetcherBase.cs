@@ -24,7 +24,16 @@ using System.Threading;
 
 namespace SparkleLib {
 
-    // Sets up a fetcher that can get remote folders
+    public class SparkleFetcherInfo {
+        public string Address;
+        public string Fingerprint;
+        public string RemotePath;
+        public string TargetDirectory;
+        public string AnnouncementsUrl;
+        public bool FetchPriorHistory;
+    }
+
+
     public abstract class SparkleFetcherBase {
 
         public event Action Started = delegate { };
@@ -49,6 +58,7 @@ namespace SparkleLib {
         public string TargetFolder { get; protected set; }
         public bool IsActive { get; private set; }
         public string Identifier;
+        public SparkleFetcherInfo OriginalFetcherInfo;
 
         public string [] Warnings {
             get {
@@ -73,7 +83,7 @@ namespace SparkleLib {
             "*.part", "*.crdownload", // Firefox and Chromium temporary download files
             ".*.sw[a-z]", "*.un~", "*.swp", "*.swo", // vi(m)
             ".directory", // KDE
-            ".DS_Store", "Icon\r\r", "._*", ".Spotlight-V100", ".Trashes", // Mac OS X
+            ".DS_Store", "Icon\r", "._*", ".Spotlight-V100", ".Trashes", // Mac OS X
             "*(Autosaved).graffle", // Omnigraffle
             "Thumbs.db", "Desktop.ini", // Windows
             "~*.tmp", "~*.TMP", "*~*.tmp", "*~*.TMP", // MS Office
@@ -83,32 +93,36 @@ namespace SparkleLib {
             "*/CVS/*", ".cvsignore", "*/.cvsignore", // CVS
             "/.svn/*", "*/.svn/*", // Subversion
             "/.hg/*", "*/.hg/*", "*/.hgignore", // Mercurial
-            "/.bzr/*", "*/.bzr/*", "*/.bzrignore" // Bazaar
+            "/.bzr/*", "*/.bzr/*", "*/.bzrignore", // Bazaar
+            "*<*", "*>*", "*:*", "*\"*", "*|*", "*\\?*", "*\\**", "*\\\\*" // Not allowed on Windows systems,
+            // see (http://msdn.microsoft.com/en-us/library/aa365247(v=vs.85).aspx)
         };
 
 
         private Thread thread;
 
 
-        public SparkleFetcherBase (string server, string required_fingerprint,
-            string remote_path, string target_folder, bool fetch_prior_history)
+        public SparkleFetcherBase (SparkleFetcherInfo info)
         {
-            RequiredFingerprint = required_fingerprint;
-            FetchPriorHistory   = fetch_prior_history;
-            remote_path         = remote_path.Trim ("/".ToCharArray ());
+            OriginalFetcherInfo = info;
+            RequiredFingerprint = info.Fingerprint;
+            FetchPriorHistory   = info.FetchPriorHistory;
+            string remote_path  = info.RemotePath.Trim ("/".ToCharArray ());
+            string address      = info.Address;
 
-            if (server.EndsWith ("/"))
-                server = server.Substring (0, server.Length - 1);
+            if (address.EndsWith ("/"))
+                address = address.Substring (0, address.Length - 1);
 
             if (!remote_path.StartsWith ("/"))
                 remote_path = "/" + remote_path;
 
-            if (!server.Contains ("://"))
-                server = "ssh://" + server;
+            if (!address.Contains ("://"))
+                address = "ssh://" + address;
 
-            TargetFolder = target_folder;
-            RemoteUrl    = new Uri (server + remote_path);
-            IsActive     = false;
+            TargetFolder = info.TargetDirectory;
+
+            RemoteUrl = new Uri (address + remote_path);
+            IsActive  = false;
         }
 
 
@@ -119,43 +133,8 @@ namespace SparkleLib {
 
             SparkleLogger.LogInfo ("Fetcher", TargetFolder + " | Fetching folder: " + RemoteUrl);
 
-            if (Directory.Exists (TargetFolder))
+            if (Directory.Exists (TargetFolder))    
                 Directory.Delete (TargetFolder, true);
-
-            string host_key = "";
-
-            if (!RemoteUrl.Scheme.StartsWith ("http")) {
-                host_key = FetchHostKey ();
-                
-                if (string.IsNullOrEmpty (RemoteUrl.Host) || host_key == null) {
-                    SparkleLogger.LogInfo ("Auth", "Could not fetch host key");
-                    Failed ();
-
-                    return;
-                }
-            
-                bool warn = true;
-                if (RequiredFingerprint != null) {
-                    string host_fingerprint = DeriveFingerprint (host_key);
-
-                    if (host_fingerprint == null || !RequiredFingerprint.Equals (host_fingerprint)) {
-                        SparkleLogger.LogInfo ("Auth", "Fingerprint doesn't match");
-
-                        this.errors.Add ("error: Host fingerprint doesn't match");
-                        Failed ();
-
-                        return;
-                    }
-
-                    warn = false;
-                    SparkleLogger.LogInfo ("Auth", "Fingerprint matches");
-
-                } else {
-                   SparkleLogger.LogInfo ("Auth", "Skipping fingerprint check");
-                }
-
-                AcceptHostKey (host_key, warn);
-            }
 
             this.thread = new Thread (() => {
                 if (Fetch ()) {
@@ -209,7 +188,7 @@ namespace SparkleLib {
 
             UriBuilder uri_builder = new UriBuilder (RemoteUrl);
 
-            if (RemoteUrl.Scheme.StartsWith ("http")) {
+            if (RemoteUrl.Scheme.Contains ("http")) {
                 uri_builder.UserName = "";
                 uri_builder.Password = "";
             }
@@ -233,8 +212,7 @@ namespace SparkleLib {
 
         public static string CreateIdentifier ()
         {
-            string random = Path.GetRandomFileName ();
-            return random.SHA1 ();
+            return Path.GetRandomFileName ().SHA1 ();
         }
 
 
@@ -254,87 +232,6 @@ namespace SparkleLib {
         {
             string salt = Path.GetRandomFileName ().SHA1 ();
             return salt.Substring (0, 16);
-        }
-
-
-        private string FetchHostKey ()
-        {
-            SparkleLogger.LogInfo ("Auth", "Fetching host key for " + RemoteUrl.Host);
-
-            Process process = new Process ();
-            process.StartInfo.FileName               = "ssh-keyscan";
-            process.StartInfo.WorkingDirectory       = SparkleConfig.DefaultConfig.TmpPath;
-            process.StartInfo.UseShellExecute        = false;
-            process.StartInfo.RedirectStandardOutput = true;
-            process.StartInfo.CreateNoWindow         = true;
-            process.EnableRaisingEvents              = true;
-
-            if (RemoteUrl.Port < 1)
-                process.StartInfo.Arguments = "-t rsa -p 22 " + RemoteUrl.Host;
-            else
-                process.StartInfo.Arguments = "-t rsa -p " + RemoteUrl.Port + " " + RemoteUrl.Host;
-
-            SparkleLogger.LogInfo ("Cmd", process.StartInfo.FileName + " " + process.StartInfo.Arguments);
-
-            process.Start ();
-            string host_key = process.StandardOutput.ReadToEnd ().Trim ();
-            process.WaitForExit ();
-
-            if (process.ExitCode == 0 && !string.IsNullOrEmpty (host_key))
-                return host_key;
-            else
-                return null;
-        }
-
-
-        private string DeriveFingerprint (string public_key)
-        {
-            try {
-                MD5 md5            = new MD5CryptoServiceProvider ();
-                string key         = public_key.Split (" ".ToCharArray ()) [2];
-                byte [] b64_bytes  = Convert.FromBase64String (key);
-                byte [] md5_bytes  = md5.ComputeHash (b64_bytes);
-                string fingerprint = BitConverter.ToString (md5_bytes);
-
-                return fingerprint.ToLower ().Replace ("-", ":");
-
-            } catch (Exception e) {
-                SparkleLogger.LogInfo ("Fetcher", "Failed creating fingerprint: " + e.Message + " " + e.StackTrace);
-                return null;
-            }
-        }
-
-
-        private void AcceptHostKey (string host_key, bool warn)
-        {
-            string ssh_config_path       = Path.Combine (SparkleConfig.DefaultConfig.HomePath, ".ssh");
-            string known_hosts_file_path = Path.Combine (ssh_config_path, "known_hosts");
-
-            if (!File.Exists (known_hosts_file_path)) {
-                if (!Directory.Exists (ssh_config_path))
-                    Directory.CreateDirectory (ssh_config_path);
-
-                File.Create (known_hosts_file_path).Close ();
-            }
-
-            string host                 = RemoteUrl.Host;
-            string known_hosts          = File.ReadAllText (known_hosts_file_path);
-            string [] known_hosts_lines = File.ReadAllLines (known_hosts_file_path);
-
-            foreach (string line in known_hosts_lines) {
-                if (line.StartsWith (host + " "))
-                    return;
-            }
-
-            if (known_hosts.EndsWith ("\n"))
-                File.AppendAllText (known_hosts_file_path, host_key + "\n");
-            else
-                File.AppendAllText (known_hosts_file_path, "\n" + host_key + "\n");
-
-            SparkleLogger.LogInfo ("Auth", "Accepted host key for " + host);
-
-            if (warn)
-                this.warnings.Add ("The following host key has been accepted:\n" + DeriveFingerprint (host_key));
         }
 
 
