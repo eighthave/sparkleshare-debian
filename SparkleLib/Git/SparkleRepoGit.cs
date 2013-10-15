@@ -51,6 +51,9 @@ namespace SparkleLib.Git {
 
                 string rebase_apply_path = new string [] { LocalPath, ".git", "rebase-apply" }.Combine ();
 
+                SparkleGit git = new SparkleGit (LocalPath, "config core.ignorecase true");
+                git.StartAndWaitForExit ();
+
                 while (Directory.Exists (rebase_apply_path) && HasLocalChanges) {
                     try {
                         ResolveConflict ();
@@ -60,7 +63,10 @@ namespace SparkleLib.Git {
                     }
                 }
 
-                SparkleGit git = new SparkleGit (LocalPath, "rev-parse --abbrev-ref HEAD");
+                git = new SparkleGit (LocalPath, "config core.ignorecase false");
+                git.StartAndWaitForExit ();
+
+                git = new SparkleGit (LocalPath, "rev-parse --abbrev-ref HEAD");
                 this.cached_branch = git.StartAndReadStandardOutput ();
 
                 return this.cached_branch;
@@ -507,6 +513,7 @@ namespace SparkleLib.Git {
                     return false;
                 
                 } else {
+                    SparkleLogger.LogInfo ("", error_output);
                     SparkleLogger.LogInfo ("Git", Name + " | Conflict detected, trying to get out...");
                     
                     while (Directory.Exists (rebase_apply_path) && HasLocalChanges) {
@@ -560,12 +567,14 @@ namespace SparkleLib.Git {
             foreach (string line in lines) {
                 string conflicting_path = line.Substring (3);
                 conflicting_path        = EnsureSpecialCharacters (conflicting_path);
-                conflicting_path        = conflicting_path.Replace ("\"", "\\\"");
+                conflicting_path        = conflicting_path.Trim ("\"".ToCharArray ());
 
                 SparkleLogger.LogInfo ("Git", Name + " | Conflict type: " + line);
 
                 // Ignore conflicts in the .sparkleshare file and use the local version
                 if (conflicting_path.EndsWith (".sparkleshare") || conflicting_path.EndsWith (".empty")) {
+                    SparkleLogger.LogInfo ("Git", Name + " | Ignoring conflict in special file: " + conflicting_path);
+
                     // Recover local version
                     SparkleGit git_theirs = new SparkleGit (LocalPath, "checkout --theirs \"" + conflicting_path + "\"");
                     git_theirs.StartAndWaitForExit ();
@@ -575,6 +584,8 @@ namespace SparkleLib.Git {
 
                     continue;
                 }
+
+                SparkleLogger.LogInfo ("Git", Name + " | Resolving: " + line);
 
                 // Both the local and server version have been modified
                 if (line.StartsWith ("UU") || line.StartsWith ("AA") ||
@@ -594,7 +605,8 @@ namespace SparkleLib.Git {
                     string abs_conflicting_path = Path.Combine (LocalPath, conflicting_path);
                     string abs_their_path       = Path.Combine (LocalPath, their_path);
 
-                    File.Move (abs_conflicting_path, abs_their_path);
+                    if (File.Exists (abs_conflicting_path) && !File.Exists (abs_their_path))
+                        File.Move (abs_conflicting_path, abs_their_path);
 
                     // Recover server version
                     SparkleGit git_ours = new SparkleGit (LocalPath, "checkout --ours \"" + conflicting_path + "\"");
@@ -604,12 +616,34 @@ namespace SparkleLib.Git {
 
                 // The local version has been modified, but the server version was removed
                 } else if (line.StartsWith ("DU")) {
+
                     // The modified local version is already in the checkout, so it just needs to be added.
                     // We need to specifically mention the file, so we can't reuse the Add () method
                     SparkleGit git_add = new SparkleGit (LocalPath, "add \"" + conflicting_path + "\"");
                     git_add.StartAndWaitForExit ();
 
                     changes_added = true;
+                
+                // The server version has been modified, but the local version was removed
+                } else if (line.StartsWith ("UD")) {
+                    
+                    // Recover server version
+                    SparkleGit git_theirs = new SparkleGit (LocalPath, "checkout --ours \"" + conflicting_path + "\"");
+                    git_theirs.StartAndWaitForExit ();
+
+                    changes_added = true;
+
+                // Server and local versions were removed
+                } else if (line.StartsWith ("DD")) {
+                    SparkleLogger.LogInfo ("Git", Name + " | No need to resolve: " + line);
+
+                // New local files
+                } else if (line.StartsWith ("??")) {
+                    SparkleLogger.LogInfo ("Git", Name + " | Found new file, no need to resolve: " + line);
+                    changes_added = true;
+                
+                } else {
+                    SparkleLogger.LogInfo ("Git", Name + " | Don't know what to do with: " + line);
                 }
             }
 
@@ -677,18 +711,6 @@ namespace SparkleLib.Git {
         }
 
 
-        public override List<SparkleChangeSet> GetChangeSets (string path)
-        {
-            return GetChangeSetsInternal (path);
-        }   
-
-
-        public override List<SparkleChangeSet> GetChangeSets ()
-        {
-            return GetChangeSetsInternal (null);
-        }
-
-
         private bool FindError (string line)
         {
             Error = ErrorStatus.None;
@@ -702,14 +724,16 @@ namespace SparkleLib.Git {
                        line.StartsWith ("ssh_exchange_identification: Connection closed by remote host")) {
 
                 Error = ErrorStatus.AuthenticationFailed;
-                
-            } else if (line.StartsWith ("error: Disk space exceeded")) {
-                Error = ErrorStatus.DiskSpaceExceeded;
-            
+
             } else if (line.EndsWith ("does not appear to be a git repository")) {
-                Error = ErrorStatus.NotFound;
+                Error = ErrorStatus.NotFound;            
+                
+            } else if (line.StartsWith ("error: Disk space exceeded") ||
+                       line.EndsWith ("No space left on device")) {
+
+                Error = ErrorStatus.DiskSpaceExceeded;
             }
-            
+
             if (Error != ErrorStatus.None) {
                 SparkleLogger.LogInfo ("Git", Name + " | Error status changed to " + Error);
                 return true;
@@ -719,6 +743,16 @@ namespace SparkleLib.Git {
             }
         }
 
+
+        public override List<SparkleChangeSet> GetChangeSets ()
+        {
+            return GetChangeSetsInternal (null);
+        }
+
+        public override List<SparkleChangeSet> GetChangeSets (string path)
+        {
+            return GetChangeSetsInternal (path);
+        }   
 
         private List<SparkleChangeSet> GetChangeSetsInternal (string path)
         {
@@ -748,6 +782,7 @@ namespace SparkleLib.Git {
             string [] lines      = output.Split ("\n".ToCharArray ());
             List<string> entries = new List <string> ();
 
+            // Split up commit entries
             int line_number = 0;
             bool first_pass = true;
             string entry = "", last_entry = "";
@@ -761,8 +796,8 @@ namespace SparkleLib.Git {
                     first_pass = false;
                 }
 
-                // Only parse 250 files to prevent memory issues
-                if (line_number < 254) {
+                // Only parse first 250 files to prevent memory issues
+                if (line_number < 250) {
                     entry += line + "\n";
                     line_number++;
                 }
@@ -772,145 +807,159 @@ namespace SparkleLib.Git {
 
             entries.Add (last_entry);
 
-
+            // Parse commit entries
             foreach (string log_entry in entries) {
                 Match match = this.log_regex.Match (log_entry);
 
-                if (match.Success) {
-                    SparkleChangeSet change_set = new SparkleChangeSet ();
+                if (!match.Success)
+                    continue;
 
-                    change_set.Folder    = new SparkleFolder (Name);
-                    change_set.Revision  = match.Groups [1].Value;
-                    change_set.User      = new SparkleUser (match.Groups [2].Value, match.Groups [3].Value);
-                    change_set.RemoteUrl = RemoteUrl;
+                SparkleChangeSet change_set = new SparkleChangeSet ();
 
-                    change_set.Timestamp = new DateTime (int.Parse (match.Groups [4].Value),
-                        int.Parse (match.Groups [5].Value), int.Parse (match.Groups [6].Value),
-                        int.Parse (match.Groups [7].Value), int.Parse (match.Groups [8].Value),
-                        int.Parse (match.Groups [9].Value));
+                change_set.Folder    = new SparkleFolder (Name);
+                change_set.Revision  = match.Groups [1].Value;
+                change_set.User      = new SparkleUser (match.Groups [2].Value, match.Groups [3].Value);
+                change_set.RemoteUrl = RemoteUrl;
 
-                    string time_zone     = match.Groups [10].Value;
-                    int our_offset       = TimeZone.CurrentTimeZone.GetUtcOffset(DateTime.Now).Hours;
-                    int their_offset     = int.Parse (time_zone.Substring (0, 3));
-                    change_set.Timestamp = change_set.Timestamp.AddHours (their_offset * -1);
-                    change_set.Timestamp = change_set.Timestamp.AddHours (our_offset);
+                change_set.Timestamp = new DateTime (int.Parse (match.Groups [4].Value),
+                    int.Parse (match.Groups [5].Value), int.Parse (match.Groups [6].Value),
+                    int.Parse (match.Groups [7].Value), int.Parse (match.Groups [8].Value),
+                    int.Parse (match.Groups [9].Value));
 
-                    string [] entry_lines = log_entry.Split ("\n".ToCharArray ());
+                string time_zone     = match.Groups [10].Value;
+                int our_offset       = TimeZone.CurrentTimeZone.GetUtcOffset(DateTime.Now).Hours;
+                int their_offset     = int.Parse (time_zone.Substring (0, 3));
+                change_set.Timestamp = change_set.Timestamp.AddHours (their_offset * -1);
+                change_set.Timestamp = change_set.Timestamp.AddHours (our_offset);
 
-                    foreach (string entry_line in entry_lines) {
-                        if (entry_line.StartsWith (":")) {
-                            if (entry_line.Contains ("\\177"))
-                                continue;
+                string [] entry_lines = log_entry.Split ("\n".ToCharArray ());
 
-                            string type_letter = entry_line [37].ToString ();
-                            string file_path   = entry_line.Substring (39);
-                            bool change_is_folder = false;
+                // Parse file list. Lines containing file changes start with ":"
+                foreach (string entry_line in entry_lines) {
+                    // Skip lines containing backspace characters
+                    if (!entry_line.StartsWith (":") || entry_line.Contains ("\\177"))
+                        continue;
 
-                            if (file_path.Equals (".sparkleshare"))
-                                continue;
+                    string file_path = entry_line.Substring (39);
 
-                            if (file_path.EndsWith (".empty")) { 
-                                file_path        = file_path.Substring (0, file_path.Length - ".empty".Length);
-                                change_is_folder = true;
-                            }
+                    if (file_path.Equals (".sparkleshare"))
+                        continue;
 
-                            file_path = EnsureSpecialCharacters (file_path);
-                            file_path = file_path.Replace ("\\\"", "\"");
+                    string type_letter    = entry_line [37].ToString ();
+                    bool change_is_folder = false;
 
-                            if (type_letter.Equals ("R")) {
-                                int tab_pos         = entry_line.LastIndexOf ("\t");
-                                file_path           = entry_line.Substring (42, tab_pos - 42);
-                                string to_file_path = entry_line.Substring (tab_pos + 1);
-
-                                file_path    = EnsureSpecialCharacters (file_path);
-                                to_file_path = EnsureSpecialCharacters (to_file_path);
-
-                                file_path = file_path.Replace ("\\\"", "\"");
-                                to_file_path = to_file_path.Replace ("\\\"", "\"");
-
-                                if (file_path.EndsWith (".empty")) {
-                                    file_path = file_path.Substring (0, file_path.Length - 6);
-                                    change_is_folder = true;
-                                }
-
-                                if (to_file_path.EndsWith (".empty")) {
-                                    to_file_path = to_file_path.Substring (0, to_file_path.Length - 6);
-                                    change_is_folder = true;
-                                }
-
-                                change_set.Changes.Add (
-                                    new SparkleChange () {
-                                        Path        = file_path,
-                                        IsFolder    = change_is_folder,
-                                        MovedToPath = to_file_path,
-                                        Timestamp   = change_set.Timestamp,
-                                        Type        = SparkleChangeType.Moved
-                                    }
-                                );
-
-                            } else {
-                                SparkleChangeType change_type = SparkleChangeType.Added;
-
-                                if (type_letter.Equals ("M")) {
-                                    change_type = SparkleChangeType.Edited;
-
-                                } else if (type_letter.Equals ("D")) {
-                                   change_type = SparkleChangeType.Deleted;
-                                }
-
-                                change_set.Changes.Add (
-                                    new SparkleChange () {
-                                        Path      = file_path,
-                                        IsFolder  = change_is_folder,
-                                        Timestamp = change_set.Timestamp,
-                                        Type      = change_type
-                                    }
-                                );
-                            }
-                        }
+                    if (file_path.EndsWith (".empty")) { 
+                        file_path        = file_path.Substring (0, file_path.Length - ".empty".Length);
+                        change_is_folder = true;
                     }
 
-                    if (change_sets.Count > 0 && path == null) {
-                        SparkleChangeSet last_change_set = change_sets [change_sets.Count - 1];
+                    try {
+                        file_path = EnsureSpecialCharacters (file_path);
+                        
+                    } catch (Exception e) {
+                        SparkleLogger.LogInfo ("Local", "Error parsing file name '" + file_path + "'", e);
+                        continue;
+                    }
 
-                        if (change_set.Timestamp.Year  == last_change_set.Timestamp.Year &&
-                            change_set.Timestamp.Month == last_change_set.Timestamp.Month &&
-                            change_set.Timestamp.Day   == last_change_set.Timestamp.Day &&
-                            change_set.User.Name.Equals (last_change_set.User.Name)) {
+                    file_path = file_path.Replace ("\\\"", "\"");
 
-                            last_change_set.Changes.AddRange (change_set.Changes);
+                    SparkleChange change = new SparkleChange () {
+                        Path      = file_path,
+                        IsFolder  = change_is_folder,
+                        Timestamp = change_set.Timestamp,
+                        Type      = SparkleChangeType.Added
+                    };
 
-                            if (DateTime.Compare (last_change_set.Timestamp, change_set.Timestamp) < 1) {
-                                last_change_set.FirstTimestamp = last_change_set.Timestamp;
-                                last_change_set.Timestamp      = change_set.Timestamp;
-                                last_change_set.Revision       = change_set.Revision;
+                    if (type_letter.Equals ("R")) {
+                        int tab_pos         = entry_line.LastIndexOf ("\t");
+                        file_path           = entry_line.Substring (42, tab_pos - 42);
+                        string to_file_path = entry_line.Substring (tab_pos + 1);
 
-                            } else {
-                                last_change_set.FirstTimestamp = change_set.Timestamp;
-                            }
+                        try {
+                            file_path = EnsureSpecialCharacters (file_path);
+                            
+                        } catch (Exception e) {
+                            SparkleLogger.LogInfo ("Local", "Error parsing file name '" + file_path + "'", e);
+                            continue;
+                        }
+
+                        try {
+                            to_file_path = EnsureSpecialCharacters (to_file_path);
+
+                        } catch (Exception e) {
+                            SparkleLogger.LogInfo ("Local", "Error parsing file name '" + to_file_path + "'", e);
+                            continue;
+                        }
+
+                        file_path    = file_path.Replace ("\\\"", "\"");
+                        to_file_path = to_file_path.Replace ("\\\"", "\"");
+
+                        if (file_path.EndsWith (".empty")) {
+                            file_path = file_path.Substring (0, file_path.Length - 6);
+                            change_is_folder = true;
+                        }
+
+                        if (to_file_path.EndsWith (".empty")) {
+                            to_file_path = to_file_path.Substring (0, to_file_path.Length - 6);
+                            change_is_folder = true;
+                        }
+                               
+                        change.Path        = file_path;
+                        change.MovedToPath = to_file_path;
+                        change.Type        = SparkleChangeType.Moved;
+
+                    } else if (type_letter.Equals ("M")) {
+                        change.Type = SparkleChangeType.Edited;
+
+                    } else if (type_letter.Equals ("D")) {
+                        change.Type = SparkleChangeType.Deleted;
+                    }
+
+                    change_set.Changes.Add (change);
+                }
+
+                // Group commits per user, per day
+                if (change_sets.Count > 0 && path == null) {
+                    SparkleChangeSet last_change_set = change_sets [change_sets.Count - 1];
+
+                    if (change_set.Timestamp.Year  == last_change_set.Timestamp.Year &&
+                        change_set.Timestamp.Month == last_change_set.Timestamp.Month &&
+                        change_set.Timestamp.Day   == last_change_set.Timestamp.Day &&
+                        change_set.User.Name.Equals (last_change_set.User.Name)) {
+
+                        last_change_set.Changes.AddRange (change_set.Changes);
+
+                        if (DateTime.Compare (last_change_set.Timestamp, change_set.Timestamp) < 1) {
+                            last_change_set.FirstTimestamp = last_change_set.Timestamp;
+                            last_change_set.Timestamp      = change_set.Timestamp;
+                            last_change_set.Revision       = change_set.Revision;
 
                         } else {
-                            change_sets.Add (change_set);
+                            last_change_set.FirstTimestamp = change_set.Timestamp;
                         }
 
                     } else {
-                        if (path != null) {
-                            List<SparkleChange> changes_to_skip = new List<SparkleChange> ();
-
-                            foreach (SparkleChange change in change_set.Changes) {
-                                if ((change.Type == SparkleChangeType.Deleted || change.Type == SparkleChangeType.Moved)
-                                    && change.Path.Equals (path)) {
-
-                                    changes_to_skip.Add (change);
-                                }
-                            }
-
-                            foreach (SparkleChange change_to_skip in changes_to_skip)
-                                change_set.Changes.Remove (change_to_skip);
-                        }
-                                        
                         change_sets.Add (change_set);
                     }
+
+                } else {
+                    // Don't show removals or moves in the revision list of a file
+                    if (path != null) {
+                        List<SparkleChange> changes_to_skip = new List<SparkleChange> ();
+
+                        foreach (SparkleChange change in change_set.Changes) {
+                            if ((change.Type == SparkleChangeType.Deleted || change.Type == SparkleChangeType.Moved)
+                                && change.Path.Equals (path)) {
+
+                                changes_to_skip.Add (change);
+                            }
+                        }
+
+                        foreach (SparkleChange change_to_skip in changes_to_skip)
+                            change_set.Changes.Remove (change_to_skip);
+                    }
+                                    
+                    change_sets.Add (change_set);
                 }
             }
 

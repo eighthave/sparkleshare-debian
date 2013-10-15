@@ -19,6 +19,7 @@ using System;
 
 using Gtk;
 using Notifications;
+using SparkleLib;
 
 namespace SparkleShare {
     
@@ -34,6 +35,16 @@ namespace SparkleShare {
                     return;
 
                 try {
+                    // Debug information for https://github.com/hbons/SparkleShare/issues/1362
+                    if (title.Length > 255) {
+                        SparkleLogger.LogInfo ("Notification", "Long string detected, truncating 'title'");
+                        title = title.Substring (0, 255) + "...";
+                    
+                    } else if (subtext.Length > 255) {
+                        SparkleLogger.LogInfo ("Notification", "Long string detected, truncating 'subtext'");
+                        title = title.Substring (0, 255) + "...";
+                    }
+
                     Notification notification = new Notification () {
                         Summary = title,
                         Body    = subtext,
@@ -53,9 +64,8 @@ namespace SparkleShare {
 
                     notification.Show ();
 
-                } catch (Exception) {
-                    // Ignore exceptions thrown by libnotify,
-                    // they're not important enough to crash
+                } catch (Exception e) {
+                    SparkleLogger.LogInfo ("Notification", "Error showing notification: ", e);
                 }
             };
         }

@@ -53,7 +53,7 @@ namespace SparkleShare {
         public delegate void ChangePageEventHandler (PageType page, string [] warnings);
         
         public event UpdateProgressBarEventHandler UpdateProgressBarEvent = delegate { };
-        public delegate void UpdateProgressBarEventHandler (double percentage);
+        public delegate void UpdateProgressBarEventHandler (double percentage, string speed);
 
         public event UpdateSetupContinueButtonEventHandler UpdateSetupContinueButtonEvent = delegate { };
         public delegate void UpdateSetupContinueButtonEventHandler (bool button_enabled);
@@ -184,14 +184,12 @@ namespace SparkleShare {
                             ChangePageEvent (PageType.Add, null);
                         }
 
-                        ShowWindowEvent ();
-
                     } else if (!Program.Controller.FirstRun && TutorialPageNumber == 0) {
                         WindowIsOpen = true;
                         ChangePageEvent (PageType.Add, null);
-                        ShowWindowEvent ();
                     }
 
+                    ShowWindowEvent ();
                     return;
                 }
 
@@ -206,10 +204,13 @@ namespace SparkleShare {
         {
             PendingInvite   = null;
             SelectedPlugin  = Plugins [0];
+
             PreviousAddress = "";
             PreviousPath    = "";
             PreviousUrl     = "";
 
+            this.saved_address     = "";
+            this.saved_remote_path = "";
             this.fetch_prior_history = false;
 
             WindowIsOpen = false;
@@ -236,27 +237,6 @@ namespace SparkleShare {
         public void SetupPageCompleted (string full_name, string email)
         {
             Program.Controller.CurrentUser = new SparkleUser (full_name, email);
-
-            new Thread (() => {
-                string link_code_file_path = Path.Combine (Program.Controller.FoldersPath, "Your link code.txt");
-
-                if (File.Exists (link_code_file_path)) {
-                    string name = Program.Controller.CurrentUser.Name.Split (" ".ToCharArray ()) [0];
-
-                    if (name.EndsWith ("s"))
-                        name += "'";
-                    else
-                        name += "'s";
-
-                    string new_file_path = Path.Combine (Program.Controller.FoldersPath, name + " link code.txt");
-
-                    if (File.Exists (new_file_path))
-                        File.Delete (new_file_path);
-
-                    File.Move (link_code_file_path, new_file_path);
-                }
-
-            }).Start ();
 
             TutorialPageNumber = 1;
             ChangePageEvent (PageType.Tutorial, null);
@@ -376,7 +356,8 @@ namespace SparkleShare {
                 Fingerprint       = SelectedPlugin.Fingerprint,
                 RemotePath        = remote_path,
                 FetchPriorHistory = this.fetch_prior_history,
-                AnnouncementsUrl  = SelectedPlugin.AnnouncementsUrl
+                AnnouncementsUrl  = SelectedPlugin.AnnouncementsUrl,
+                Backend           = SelectedPlugin.Backend 
             };
 
             new Thread (() => { Program.Controller.StartFetcher (info); }).Start ();
@@ -428,10 +409,14 @@ namespace SparkleShare {
             Program.Controller.FolderFetching   -= SyncingPageFetchingDelegate;
         }
 
-        private void SyncingPageFetchingDelegate (double percentage)
+        private void SyncingPageFetchingDelegate (double percentage, double speed)
         {
             ProgressBarPercentage = percentage;
-            UpdateProgressBarEvent (ProgressBarPercentage);
+
+            if (speed == 0.0)
+                UpdateProgressBarEvent (ProgressBarPercentage, "");
+            else
+                UpdateProgressBarEvent (ProgressBarPercentage, "Fetching files… " + speed.ToSize () + "/s");
         }
 
 
@@ -588,9 +573,13 @@ namespace SparkleShare {
             PreviousUrl     = "";
             PreviousAddress = "";
             PreviousPath    = "";
-            this.fetch_prior_history = false;
 
+            this.fetch_prior_history = false;
+            this.saved_address     = "";
+            this.saved_remote_path = "";
             this.current_page = PageType.None;
+
+            WindowIsOpen = false;
             HideWindowEvent ();
         }
 

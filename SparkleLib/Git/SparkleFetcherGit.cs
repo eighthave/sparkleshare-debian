@@ -29,8 +29,11 @@ namespace SparkleLib.Git {
 
         private SparkleGit git;
         private bool use_git_bin;
-
         private string cached_salt;
+
+        private Regex progress_regex = new Regex (@"([0-9]+)%", RegexOptions.Compiled);
+        private Regex speed_regex    = new Regex (@"([0-9\.]+) ([KM])iB/s", RegexOptions.Compiled);
+
 
         private string crypto_salt {
             get {
@@ -123,54 +126,82 @@ namespace SparkleLib.Git {
             this.git.Start ();
 
             double percentage = 1.0;
-            Regex progress_regex = new Regex (@"([0-9]+)%", RegexOptions.Compiled);
 
             DateTime last_change     = DateTime.Now;
             TimeSpan change_interval = new TimeSpan (0, 0, 0, 1);
 
-            while (!this.git.StandardError.EndOfStream) {
-                string line = this.git.StandardError.ReadLine ();
-                Match match = progress_regex.Match (line);
-                
-                double number = 0.0;
-                if (match.Success) {
-                    number = double.Parse (match.Groups [1].Value, new CultureInfo ("en-US"));
+            try {
+                while (!this.git.StandardError.EndOfStream) {
+                    string line = this.git.StandardError.ReadLine ();
+                    Match match = this.progress_regex.Match (line);
                     
-                    // The cloning progress consists of two stages: the "Compressing 
-                    // objects" stage which we count as 20% of the total progress, and 
-                    // the "Receiving objects" stage which we count as the last 80%
-                    if (line.Contains ("|"))
-                        number = (number / 100 * 80 + 20); // "Receiving objects" stage
-                    else
-                        number = (number / 100 * 20); // "Compressing objects" stage
+                    double number = 0.0;
+                    double speed  = 0.0; 
+                    if (match.Success) {
+                        try {
+                            number = double.Parse (match.Groups [1].Value, new CultureInfo ("en-US"));
+                            
+                        } catch (FormatException) {
+                            SparkleLogger.LogInfo ("Git", "Error parsing progress: \"" + match.Groups [1] + "\"");
+                        }
+                        
+                        // The pushing progress consists of two stages: the "Compressing
+                        // objects" stage which we count as 20% of the total progress, and
+                        // the "Writing objects" stage which we count as the last 80%
+                        if (line.Contains ("Compressing")) {
+                            // "Compressing objects" stage
+                            number = (number / 100 * 20);
+                            
+                        } else {
+                            // "Writing objects" stage
+                            number = (number / 100 * 80 + 20);
+                            Match speed_match = this.speed_regex.Match (line);
+                            
+                            if (speed_match.Success) {
+                                try {
+                                    speed = double.Parse (speed_match.Groups [1].Value, new CultureInfo ("en-US")) * 1024;
 
-                } else {
-                    SparkleLogger.LogInfo ("Fetcher", line);
-                    line = line.Trim (new char [] {' ', '@'});
+                                } catch (FormatException) {
+                                    SparkleLogger.LogInfo ("Git", "Error parsing speed: \"" + speed_match.Groups [1] + "\"");
+                                }
+                                
+                                if (speed_match.Groups [2].Value.Equals ("M"))
+                                    speed = speed * 1024;
+                            }    
+                        }
 
-                    if (line.StartsWith ("fatal:", StringComparison.InvariantCultureIgnoreCase) ||
-                        line.StartsWith ("error:", StringComparison.InvariantCultureIgnoreCase)) {
+                    } else {
+                        SparkleLogger.LogInfo ("Fetcher", line);
+                        line = line.Trim (new char [] {' ', '@'});
 
-                        base.errors.Add (line);
+                        if (line.StartsWith ("fatal:", StringComparison.InvariantCultureIgnoreCase) ||
+                            line.StartsWith ("error:", StringComparison.InvariantCultureIgnoreCase)) {
 
-                    } else if (line.StartsWith ("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!")) {
-                        base.errors.Add ("warning: Remote host identification has changed!");
+                            base.errors.Add (line);
 
-                    } else if (line.StartsWith ("WARNING: POSSIBLE DNS SPOOFING DETECTED!")) {
-                        base.errors.Add ("warning: Possible DNS spoofing detected!");
+                        } else if (line.StartsWith ("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!")) {
+                            base.errors.Add ("warning: Remote host identification has changed!");
+
+                        } else if (line.StartsWith ("WARNING: POSSIBLE DNS SPOOFING DETECTED!")) {
+                            base.errors.Add ("warning: Possible DNS spoofing detected!");
+                        }
+                    }
+
+                    if (number >= percentage) {
+                        percentage = number;
+
+                        if (DateTime.Compare (last_change, DateTime.Now.Subtract (change_interval)) < 0) {
+                            base.OnProgressChanged (percentage, speed);
+                            last_change = DateTime.Now;
+                        }
                     }
                 }
-
-                if (number >= percentage) {
-                    percentage = number;
-
-                    if (DateTime.Compare (last_change, DateTime.Now.Subtract (change_interval)) < 0) {
-                        base.OnProgressChanged (percentage);
-                        last_change = DateTime.Now;
-                    }
-                }
-            }
             
+            } catch (Exception) {
+                IsActive = false;
+                return false;
+            }
+
             this.git.WaitForExit ();
 
             if (this.git.ExitCode == 0) {
@@ -181,10 +212,10 @@ namespace SparkleLib.Git {
                         break;
 
                     Thread.Sleep (500);
-                    base.OnProgressChanged (percentage);
+                    base.OnProgressChanged (percentage, 0);
                 }
 
-                base.OnProgressChanged (100);
+                base.OnProgressChanged (100, 0);
 
                 InstallConfiguration ();
                 InstallExcludeRules ();
@@ -248,10 +279,8 @@ namespace SparkleLib.Git {
                     return false;
             }
 
-            Process process = new Process () {
-                EnableRaisingEvents = true
-            };
-
+            Process process = new Process ();
+            process.EnableRaisingEvents              = true;
             process.StartInfo.WorkingDirectory       = TargetFolder;
             process.StartInfo.UseShellExecute        = false;
             process.StartInfo.RedirectStandardOutput = true;
@@ -259,7 +288,10 @@ namespace SparkleLib.Git {
 
             process.StartInfo.FileName  = "openssl";
             process.StartInfo.Arguments = "enc -d -aes-256-cbc -base64 -S " + this.crypto_salt +
-                " -pass pass:\"" + password + "\" -in " + password_check_file_path;
+                " -pass pass:\"" + password + "\" -in \"" + password_check_file_path + "\"";
+
+            SparkleLogger.LogInfo ("Cmd | " + System.IO.Path.GetFileName (process.StartInfo.WorkingDirectory),
+                System.IO.Path.GetFileName (process.StartInfo.FileName) + " " + process.StartInfo.Arguments);
 
             process.Start ();
             process.WaitForExit ();
@@ -277,14 +309,23 @@ namespace SparkleLib.Git {
         public override void Stop ()
         {
             try {
-                if (this.git != null) {
-                    this.git.Close ();
+                if (this.git != null && !this.git.HasExited) {
                     this.git.Kill ();
                     this.git.Dispose ();
                 }
 
             } catch (Exception e) {
                 SparkleLogger.LogInfo ("Fetcher", "Failed to dispose properly", e);
+            }
+
+            if (Directory.Exists (TargetFolder)) {
+                try {
+                    Directory.Delete (TargetFolder, true /* Recursive */ );
+                    SparkleLogger.LogInfo ("Fetcher", "Deleted '" + TargetFolder + "'");
+                    
+                } catch (Exception e) {
+                    SparkleLogger.LogInfo ("Fetcher", "Failed to delete '" + TargetFolder + "'", e);
+                }
             }
         }
 
@@ -309,7 +350,7 @@ namespace SparkleLib.Git {
                 "core.autocrlf false", // Don't change file line endings
                 "core.precomposeunicode true", // Use the same Unicode form on all filesystems
                 "core.safecrlf false",
-                "core.exludesfile \"\"",
+                "core.excludesfile \"\"",
                 "core.packedGitLimit 128m", // Some memory limiting options
                 "core.packedGitWindowSize 128m",
                 "pack.deltaCacheSize 128m",

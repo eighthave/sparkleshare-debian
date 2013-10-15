@@ -26,8 +26,9 @@ namespace SparkleLib {
 
     public class SparkleFetcherInfo {
         public string Address;
-        public string Fingerprint;
         public string RemotePath;
+        public string Backend;
+        public string Fingerprint;
         public string TargetDirectory;
         public string AnnouncementsUrl;
         public bool FetchPriorHistory;
@@ -43,7 +44,7 @@ namespace SparkleLib {
         public delegate void FinishedEventHandler (bool repo_is_encrypted, bool repo_is_empty, string [] warnings);
 
         public event ProgressChangedEventHandler ProgressChanged = delegate { };
-        public delegate void ProgressChangedEventHandler (double percentage);
+        public delegate void ProgressChangedEventHandler (double percentage, double speed);
 
 
         public abstract bool Fetch ();
@@ -52,11 +53,14 @@ namespace SparkleLib {
         public abstract bool IsFetchedRepoPasswordCorrect (string password);
         public abstract void EnableFetchedRepoCrypto (string password);
 
+        public double ProgressPercentage { get; private set; }
+        public double ProgressSpeed { get; private set; }
+
         public Uri RemoteUrl { get; protected set; }
         public string RequiredFingerprint { get; protected set; }
         public readonly bool FetchPriorHistory = false;
         public string TargetFolder { get; protected set; }
-        public bool IsActive { get; private set; }
+        public bool IsActive { get; protected set; }
         public string Identifier;
         public SparkleFetcherInfo OriginalFetcherInfo;
 
@@ -83,6 +87,7 @@ namespace SparkleLib {
             "*.part", "*.crdownload", // Firefox and Chromium temporary download files
             ".*.sw[a-z]", "*.un~", "*.swp", "*.swo", // vi(m)
             ".directory", // KDE
+            "*.kate-swp", // Kate
             ".DS_Store", "Icon\r", "._*", ".Spotlight-V100", ".Trashes", // Mac OS X
             "*(Autosaved).graffle", // Omnigraffle
             "Thumbs.db", "Desktop.ini", // Windows
@@ -90,6 +95,7 @@ namespace SparkleLib {
             "~*.ppt", "~*.PPT", "~*.pptx", "~*.PPTX",
             "~*.xls", "~*.XLS", "~*.xlsx", "~*.XLSX",
             "~*.doc", "~*.DOC", "~*.docx", "~*.DOCX",
+            "*.a$v", // QuarkXPress
             "*/CVS/*", ".cvsignore", "*/.cvsignore", // CVS
             "/.svn/*", "*/.svn/*", // Subversion
             "/.hg/*", "*/.hg/*", "*/.hgignore", // Mercurial
@@ -150,10 +156,16 @@ namespace SparkleLib {
 
                 } else {
                     Thread.Sleep (500);
-                    SparkleLogger.LogInfo ("Fetcher", "Failed");
+
+                    if (IsActive) {
+                        SparkleLogger.LogInfo ("Fetcher", "Failed");
+                        Failed ();
+                    
+                    } else {
+                        SparkleLogger.LogInfo ("Fetcher", "Failed: cancelled by user");
+                    }
 
                     IsActive = false;
-                    Failed ();
                 }
             });
 
@@ -223,8 +235,8 @@ namespace SparkleLib {
         }
 
 
-        protected void OnProgressChanged (double percentage) {
-            ProgressChanged (percentage);
+        protected void OnProgressChanged (double percentage, double speed) {
+            ProgressChanged (percentage, speed);
         }
 
 
