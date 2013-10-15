@@ -158,8 +158,6 @@ namespace SparkleLib {
 			string identifier_file_path = Path.Combine (LocalPath, ".sparkleshare");
 			File.SetAttributes (identifier_file_path, FileAttributes.Hidden);
 
-            SyncStatusChanged += delegate (SyncStatus status) { Status = status; };
-
             if (!UseCustomWatcher)
                 this.watcher = new SparkleWatcher (LocalPath);
 
@@ -188,6 +186,11 @@ namespace SparkleLib {
                 // changes or the server was down, sync up again
                 if (HasUnsyncedChanges && !this.is_syncing && Error == ErrorStatus.None)
                     SyncUpBase ();
+
+                if (Status != SyncStatus.Idle && Status != SyncStatus.Error) {
+                    Status = SyncStatus.Idle;
+                    SyncStatusChanged (Status);
+                }
             };
         }
 
@@ -260,17 +263,26 @@ namespace SparkleLib {
                     SparkleLogger.LogInfo ("Local", Name + " | Activity has settled");
                     IsBuffering = false;
 
-                    if (HasLocalChanges) {
+                    bool first_sync = true;
+
+                    if (HasLocalChanges && Status == SyncStatus.Idle) {
                         do {
+                            if (!first_sync)
+                                SparkleLogger.LogInfo ("Local", Name + " | More changes found");
+
                             SyncUpBase ();
 
                             if (Error == ErrorStatus.UnreadableFiles)
                                 return;
 
-                        } while (HasLocalChanges);
+                            first_sync = false;
 
-                    } else {
-                        SyncStatusChanged (SyncStatus.Idle);
+                        } while (HasLocalChanges);
+                    } 
+
+                    if (Status != SyncStatus.Idle && Status != SyncStatus.Error) {
+                        Status = SyncStatus.Idle;
+                        SyncStatusChanged (Status);
                     }
 
                 } else {
@@ -327,7 +339,8 @@ namespace SparkleLib {
             SparkleLogger.LogInfo ("SyncUp", Name + " | Initiated");
             HasUnsyncedChanges = true;
 
-            SyncStatusChanged (SyncStatus.SyncUp);
+            Status = SyncStatus.SyncUp;
+            SyncStatusChanged (Status);
 
             if (SyncUp ()) {
                 SparkleLogger.LogInfo ("SyncUp", Name + " | Done");
@@ -336,8 +349,10 @@ namespace SparkleLib {
                 HasUnsyncedChanges = false;
                 this.poll_interval = PollInterval.Long;
 
-                SyncStatusChanged (SyncStatus.Idle);
                 this.listener.Announce (new SparkleAnnouncement (Identifier, CurrentRevision));
+
+                Status = SyncStatus.Idle;
+                SyncStatusChanged (Status);
 
             } else {
                 SparkleLogger.LogInfo ("SyncUp", Name + " | Error");
@@ -350,11 +365,15 @@ namespace SparkleLib {
                     HasUnsyncedChanges = false;
 
                     this.listener.Announce (new SparkleAnnouncement (Identifier, CurrentRevision));
-                    SyncStatusChanged (SyncStatus.Idle);
+
+                    Status = SyncStatus.Idle;
+                    SyncStatusChanged (Status);
 
                 } else {
                     this.poll_interval = PollInterval.Short;
-                    SyncStatusChanged (SyncStatus.Error);
+
+                    Status = SyncStatus.Error;
+                    SyncStatusChanged (Status);
                 }
             }
 
@@ -373,15 +392,16 @@ namespace SparkleLib {
 
             SparkleLogger.LogInfo ("SyncDown", Name + " | Initiated");
 
-            SyncStatusChanged (SyncStatus.SyncDown);
+            Status = SyncStatus.SyncDown;
+            SyncStatusChanged (Status);
+
             string pre_sync_revision = CurrentRevision;
 
             if (SyncDown ()) {
-                SparkleLogger.LogInfo ("SyncDown", Name + " | Done");
                 Error = ErrorStatus.None;
 
-				string identifier_file_path = Path.Combine (LocalPath, ".sparkleshare");
-				File.SetAttributes (identifier_file_path, FileAttributes.Hidden);
+                string identifier_file_path = Path.Combine (LocalPath, ".sparkleshare");
+                File.SetAttributes (identifier_file_path, FileAttributes.Hidden);
 
                 ChangeSets = GetChangeSets ();
 
@@ -402,29 +422,36 @@ namespace SparkleLib {
                         NewChangeSet (ChangeSets [0]);
                 }
 
+                SparkleLogger.LogInfo ("SyncDown", Name + " | Done");
+
                 // There could be changes from a resolved
                 // conflict. Tries only once, then lets
                 // the timer try again periodically
                 if (HasUnsyncedChanges) {
-                    SyncStatusChanged (SyncStatus.SyncUp);
+                    Status = SyncStatus.SyncUp;
+                    SyncStatusChanged (Status);
                     
                     if (SyncUp ())
                         HasUnsyncedChanges = false;
                 }
 
-                SyncStatusChanged (SyncStatus.Idle);
+                Status = SyncStatus.Idle;
+                SyncStatusChanged (Status);
 
             } else {
                 SparkleLogger.LogInfo ("SyncDown", Name + " | Error");
 
                 ChangeSets = GetChangeSets ();
-                SyncStatusChanged (SyncStatus.Error);
+
+                Status = SyncStatus.Error;
+                SyncStatusChanged (Status);
             }
 
             ProgressPercentage = 0.0;
             ProgressSpeed      = 0.0;
 
-            SyncStatusChanged (SyncStatus.Idle);
+            Status = SyncStatus.Idle;
+            SyncStatusChanged (Status);
 
             if (!UseCustomWatcher)
                 this.watcher.Enable ();

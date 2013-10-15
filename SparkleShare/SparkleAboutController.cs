@@ -32,22 +32,15 @@ namespace SparkleShare {
         public readonly string WebsiteLinkAddress       = "http://www.sparkleshare.org/";
         public readonly string CreditsLinkAddress       = "http://www.github.com/hbons/SparkleShare/tree/master/legal/AUTHORS";
         public readonly string ReportProblemLinkAddress = "http://www.github.com/hbons/SparkleShare/issues";
-        public readonly string DebugLogLinkAddress      = "file://" + Program.Controller.ConfigPath;
+        public readonly string DebugLogLinkAddress      = "file://" + Program.Controller.Config.LogFilePath;
 
-        public string RunningVersion {
-            get {
-                string version = SparkleLib.SparkleBackend.Version;
-
-                if (version.EndsWith (".0"))
-                    version = version.Substring (0, version.Length - 2);
-
-                return version;
-            }
-        }
+        public string RunningVersion;
 
 
         public SparkleAboutController ()
         {
+            RunningVersion = SparkleLib.SparkleBackend.Version;
+
             Program.Controller.ShowAboutWindowEvent += delegate {
                 ShowWindowEvent ();
                 new Thread (() => CheckForNewVersion ()).Start ();

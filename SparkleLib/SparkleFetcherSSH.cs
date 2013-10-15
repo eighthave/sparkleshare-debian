@@ -16,11 +16,12 @@ namespace SparkleLib {
 
         public override bool Fetch ()
         {
-            if (RemoteUrl.Host.EndsWith(".onion")) {
+            if (RemoteUrl.Host.EndsWith (".onion")) {
                 // Tor has special domain names called ".onion addresses".  They can only be
                 // resolved by using a proxy via tor. While the rest of the openssh suite
                 // fully supports proxying, ssh-keyscan does not, so we can't use it for .onion
                 SparkleLogger.LogInfo ("Auth", "using tor .onion address skipping ssh-keyscan");
+
             } else if (!RemoteUrl.Scheme.StartsWith ("http")) {
                 string host_key = FetchHostKey ();
                 
@@ -33,8 +34,20 @@ namespace SparkleLib {
                 
                 bool warn = true;
                 if (RequiredFingerprint != null) {
-                    string host_fingerprint = DeriveFingerprint (host_key);
+                    string host_fingerprint;
+
+                    try {
+                        host_fingerprint = DeriveFingerprint (host_key);
                     
+                    } catch (InvalidOperationException e) {
+                        // "Unapproved cryptographic algorithms" won't work when FIPS is enabled on Windows.
+                        // Software like Cisco AnyConnect can demand this feature is on, so we show an error
+                        SparkleLogger.LogInfo ("Auth", "Unable to derive fingerprint: ", e);
+                        this.errors.Add ("error: Can't check fingerprint due to FIPS being enabled");
+                        
+                        return false;
+                    }
+
                     if (host_fingerprint == null || !RequiredFingerprint.Equals (host_fingerprint)) {
                         SparkleLogger.LogInfo ("Auth", "Fingerprint doesn't match");
                         this.errors.Add ("error: Host fingerprint doesn't match");

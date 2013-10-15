@@ -44,10 +44,11 @@ namespace SparkleShare {
 
         public SparkleEventLog () : base ("")
         {
-            SetSizeRequest (480, (int) (Gdk.Screen.Default.Height * 0.8));
+            Gdk.Rectangle monitor_0_rect = Gdk.Screen.Default.GetMonitorGeometry (0);
+            SetSizeRequest (480, (int) (monitor_0_rect.Height * 0.8));
 
-            int x = (int) (Gdk.Screen.Default.Width * 0.61);
-            int y = (int) (Gdk.Screen.Default.Height * 0.5 - (HeightRequest * 0.5));
+            int x = (int) (monitor_0_rect.Width * 0.61);
+            int y = (int) (monitor_0_rect.Height * 0.5 - (HeightRequest * 0.5));
             
             Move (x, y);
 
@@ -131,20 +132,21 @@ namespace SparkleShare {
                 });
             };
 			
-			Controller.ShowSaveDialogEvent += delegate (string file_name, string target_folder_path) {
+            Controller.ShowSaveDialogEvent += delegate (string file_name, string target_folder_path) {
                 Application.Invoke (delegate {
                     FileChooserDialog dialog = new FileChooserDialog ("Restore from History",
-						this, FileChooserAction.Save, "Cancel", ResponseType.Cancel, "Save", ResponseType.Ok);
+                        this, FileChooserAction.Save, "Cancel", ResponseType.Cancel, "Save", ResponseType.Ok);
 					
-					dialog.CurrentName = file_name;
-					dialog.SetCurrentFolder (target_folder_path);
-					
-					if (dialog.Run () == (int) ResponseType.Ok)
-						Controller.SaveDialogCompleted (dialog.Filename);
-					else
-						Controller.SaveDialogCancelled ();
-					
-					dialog.Destroy ();
+                    dialog.CurrentName = file_name;
+                    dialog.DoOverwriteConfirmation = true;
+                    dialog.SetCurrentFolder (target_folder_path);
+
+                    if (dialog.Run () == (int) ResponseType.Ok)
+                        Controller.SaveDialogCompleted (dialog.Filename);
+                    else
+                        Controller.SaveDialogCancelled ();
+
+                    dialog.Destroy ();
                 });
             };
 
@@ -154,7 +156,7 @@ namespace SparkleShare {
                 });
             };
 			
-			Controller.UpdateChooserEnablementEvent += delegate (bool enabled) {
+            Controller.UpdateChooserEnablementEvent += delegate (bool enabled) {
                 Application.Invoke (delegate {
                     this.combo_box.Sensitive = enabled;
                 });
