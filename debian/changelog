@@ -1,10 +1,10 @@
-sparkleshare (1.1.0-1ubuntu1) UNRELEASED; urgency=medium
+sparkleshare (1.1.0-1ubuntu1) trusty; urgency=medium
 
   * Merge with Debian unstable. Remaining Ubuntu changes:
    - Add build-dep on libappindicator for libappindicator0.1-cil-dev
      indicator support.
 
- -- Andrew Starr-Bochicchio <a.starr.b@gmail.com>  Wed, 12 Feb 2014 23:41:22 -0500
+ -- Andrew Starr-Bochicchio <a.starr.b@gmail.com>  Wed, 12 Feb 2014 23:45:21 -0500
 
 sparkleshare (1.1.0-1) unstable; urgency=low
 
