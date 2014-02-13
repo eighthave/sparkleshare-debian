@@ -1,18 +1,19 @@
 ASSEMBLY = SparkleLib
 TARGET = library
 
+ASSEMBLY_INFO_SOURCE = Defines.cs
+
 SOURCES =  \
 	Defines.cs \
-	SparkleAnnouncement.cs \
 	SparkleBackend.cs \
 	SparkleConfig.cs \
-	SparkleExceptions.cs \
 	SparkleExtensions.cs \
 	SparkleFetcherBase.cs \
-	SparkleHelpers.cs \
+	SparkleFetcherSSH.cs \
 	SparkleListenerBase.cs \
 	SparkleListenerFactory.cs \
 	SparkleListenerTcp.cs \
+	SparkleLogger.cs \
 	SparkleRepoBase.cs \
 	SparkleUser.cs \
 	SparkleWatcher.cs \

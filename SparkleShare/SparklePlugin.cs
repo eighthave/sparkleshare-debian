@@ -16,91 +16,41 @@
 
 
 using System;
-using System.IO;
 using System.Xml;
+
+using IO = System.IO;
 
 namespace SparkleShare {
 
-    public class SparklePlugin {
+    public class SparklePlugin : XmlDocument {
 
         public static string PluginsPath = "";
 
-        public static string LocalPluginsPath =
-            new string [] { Environment.GetFolderPath (Environment.SpecialFolder.ApplicationData),
-                "sparkleshare", "plugins" }.Combine ();
+        public static string LocalPluginsPath = IO.Path.Combine (
+            Environment.GetFolderPath (Environment.SpecialFolder.ApplicationData), "sparkleshare", "plugins");
 
-
-        public string Name {
-            get {
-                return GetValue ("info", "name");
-            }
-        }
-
-        public string Description {
-            get {
-                return GetValue ("info", "description");
-            }
-        }
+        new public string Name { get { return GetValue ("info", "name"); } }
+        public string Description { get { return GetValue ("info", "description"); } }
+        public string Backend { get { return GetValue ("info", "backend"); } }
+        public string Fingerprint { get { return GetValue ("info", "fingerprint"); } }
+        public string AnnouncementsUrl { get { return GetValue ("info", "announcements_url"); } }
+        public string Address { get { return GetValue ("address", "value"); } }
+        public string AddressExample { get { return GetValue ("address", "example"); } }
+        public string Path { get { return GetValue ("path", "value"); } }
+        public string PathExample { get { return GetValue ("path", "example"); } }
 
         public string ImagePath {
             get {
                 string image_file_name = GetValue ("info", "icon");
+                string image_path      = IO.Path.Combine (this.plugin_directory, image_file_name);
 
-                string image_path = System.IO.Path.Combine (
-                    this.plugin_directory,
-                    image_file_name
-                );
-
-                if (File.Exists (image_path))
+                if (IO.File.Exists (image_path))
                     return image_path;
                 else
-                    return System.IO.Path.Combine (
-                        PluginsPath, image_file_name);
+                    return IO.Path.Combine (PluginsPath, image_file_name);
             }
         }
-
-        public string Backend {
-            get {
-                return GetValue ("info", "backend");
-            }
-        }
-
-        public string Fingerprint {
-            get {
-                return GetValue ("info", "fingerprint");
-            }
-        }
-
-        public string Address {
-            get {
-                return GetValue ("address", "value");
-            }
-        }
-
-        public string AddressExample {
-            get {
-                return GetValue ("address", "example");
-            }
-        }
-
-        public string Path {
-            get {
-                return GetValue ("path", "value");
-            }
-        }
-
-        public string PathExample {
-            get {
-                return GetValue ("path", "example");
-            }
-        }
-
-        public string AnnouncementsUrl {
-            get {
-                return GetValue ("info", "announcements_url");
-            }
-        }
-		
+        
         public bool PathUsesLowerCase {
             get {
                 string uses_lower_case = GetValue ("path", "uses_lower_case");
@@ -112,14 +62,13 @@ namespace SparkleShare {
             }
         }
 
-
-        private XmlDocument xml = new XmlDocument ();
         private string plugin_directory;
+
 
         public SparklePlugin (string plugin_path)
         {
             this.plugin_directory = System.IO.Path.GetDirectoryName (plugin_path);
-            this.xml.Load (plugin_path);
+            Load (plugin_path);
         }
 
 
@@ -128,7 +77,7 @@ namespace SparkleShare {
         {
             string plugin_path = System.IO.Path.Combine (LocalPluginsPath, name + ".xml");
 
-            if (File.Exists (plugin_path))
+            if (IO.File.Exists (plugin_path))
                 return null;
 
             string plugin_xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
@@ -153,19 +102,17 @@ namespace SparkleShare {
             plugin_xml = plugin_xml.Replace ("<value></value>", "<value/>");
             plugin_xml = plugin_xml.Replace ("<example></example>", "<example/>");
 
-            if (!Directory.Exists (LocalPluginsPath))
-                Directory.CreateDirectory (LocalPluginsPath);
+            if (!IO.Directory.Exists (LocalPluginsPath))
+                IO.Directory.CreateDirectory (LocalPluginsPath);
 
-            File.WriteAllText (plugin_path, plugin_xml);
-
+            IO.File.WriteAllText (plugin_path, plugin_xml);
             return new SparklePlugin (plugin_path);
         }
 
 
         private string GetValue (string a, string b)
         {
-            XmlNode node = this.xml.SelectSingleNode (
-                "/sparkleshare/plugin/" + a + "/" + b + "/text()");
+            XmlNode node = SelectSingleNode ("/sparkleshare/plugin/" + a + "/" + b + "/text()");
 
             if (node != null && !string.IsNullOrEmpty (node.Value))
                 return node.Value;

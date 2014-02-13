@@ -1,9 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-m4_define([sparkleshare_version],
-	[0.9.0])
-
-m4_define([sparkleshare_asm_version],
-	[0.9.0])
+m4_define([sparkleshare_version], [1.1.0])
 
 AC_PREREQ([2.54])
 AC_INIT([SparkleShare], sparkleshare_version)
@@ -11,7 +7,7 @@ AM_INIT_AUTOMAKE([1.11 dist-bzip2 dist-zip foreign tar-pax])
 AM_MAINTAINER_MODE
 
 dnl Export Version Info
-AC_SUBST([ASM_VERSION], [sparkleshare_asm_version])
+AC_SUBST([ASM_VERSION], [sparkleshare_version])
 
 dnl pkg-config
 AC_PATH_PROG(PKG_CONFIG, pkg-config, no)
@@ -122,9 +118,6 @@ AC_SUBST([GUISUBDIRS])
 
 SHAMROCK_CHECK_NUNIT
 
-dnl Get nautilus extensions directory
-SPARKLESHARE_NAUTILUS_PYTHON
-
 SHAVE_INIT([build/m4/shave], [enable])
 
 AC_OUTPUT([
@@ -132,7 +125,6 @@ build/Makefile
 build/m4/Makefile
 build/m4/shave/shave
 build/m4/shave/shave-libtool
-SparkleLib/AssemblyInfo.cs
 SparkleLib/Defines.cs
 SparkleLib/Makefile
 SparkleLib/Git/Makefile
@@ -143,12 +135,10 @@ SparkleShare/Common/Pixmaps/Makefile
 SparkleShare/Linux/Makefile
 SparkleShare/Linux/Pixmaps/Makefile
 SparkleShare/Linux/Pixmaps/icons/Makefile
+SparkleShare/Linux/Pixmaps/icons/gnome/Makefile
 SparkleShare/Linux/Pixmaps/icons/ubuntu-mono-dark/Makefile
 SparkleShare/Linux/Pixmaps/icons/ubuntu-mono-light/Makefile
 SparkleShare/Linux/sparkleshare
-SparkleShare/Linux/Nautilus/Makefile
-SparkleShare/Linux/Nautilus/sparkleshare-nautilus-extension.py
-SparkleShare/Linux/Nautilus/sparkleshare-nautilus3-extension.py
 SparkleShare/Makefile
 Makefile
 ])
@@ -157,10 +147,7 @@ echo "
 SparkleShare ${VERSION}
 
 Configuration:
-       Prefix              : ${prefix}
-       Build Gtk+ UI       : ${enable_gtkui}
-       Nautilus 2.x plugin : ${have_nautilus2_python}
-       Nautilus 3.x plugin : ${have_nautilus3_python}
+       Prefix : ${prefix}
 
 "
 

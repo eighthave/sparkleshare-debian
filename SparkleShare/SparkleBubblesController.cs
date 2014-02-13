@@ -16,13 +16,15 @@
 
 
 using System;
+using System.Text;
+
 using SparkleLib;
 
 namespace SparkleShare {
 
     public class SparkleBubblesController {
 
-        public event ShowBubbleEventHandler ShowBubbleEvent;
+        public event ShowBubbleEventHandler ShowBubbleEvent = delegate { };
         public delegate void ShowBubbleEventHandler (string title, string subtext, string image_path);
 
 
@@ -33,51 +35,26 @@ namespace SparkleShare {
             };
 
             Program.Controller.NotificationRaised += delegate (SparkleChangeSet change_set) {
-                if (Program.Controller.NotificationsEnabled)
-                    ShowBubble (change_set.User.Name, FormatMessage (change_set),
-                        Program.Controller.GetAvatar (change_set.User.Email, 48));
+                ShowBubble (change_set.User.Name, change_set.ToMessage (),
+                    Program.Controller.GetAvatar (change_set.User.Email, 48));
             };
         }
 
 
         public void ShowBubble (string title, string subtext, string image_path)
         {
-            if (ShowBubbleEvent != null)
-                ShowBubbleEvent (title, subtext, image_path);
+            byte [] title_bytes   = Encoding.Default.GetBytes (title);
+            byte [] subtext_bytes = Encoding.Default.GetBytes (subtext);
+            title                 = Encoding.UTF8.GetString (title_bytes);
+            subtext               = Encoding.UTF8.GetString (subtext_bytes);
+
+            ShowBubbleEvent (title, subtext, image_path);
         }
 
 
         public void BubbleClicked ()
         {
             Program.Controller.ShowEventLogWindow ();
-        }
-
-
-        private string FormatMessage (SparkleChangeSet change_set)
-        {
-            string message = "";
-
-            if (change_set.Changes [0].Type == SparkleChangeType.Deleted)
-                message = string.Format ("moved ‘{0}’", change_set.Changes [0].Path);
-
-            if (change_set.Changes [0].Type == SparkleChangeType.Moved)
-                message = string.Format ("moved ‘{0}’", change_set.Changes [0].Path);
-
-            if (change_set.Changes [0].Type == SparkleChangeType.Added)
-                message = string.Format ("added ‘{0}’", change_set.Changes [0].Path);
-
-            if (change_set.Changes [0].Type == SparkleChangeType.Edited)
-                message = string.Format ("moved ‘{0}’", change_set.Changes [0].Path);
-
-            if (change_set.Changes.Count > 0) {
-                string msg = string.Format ("and {0} more", change_set.Changes.Count);
-                message    = message + " " + string.Format (msg, change_set.Changes.Count);
-
-            } else {
-                message = "did something magical";
-            }
-
-            return message;
         }
     }
 }

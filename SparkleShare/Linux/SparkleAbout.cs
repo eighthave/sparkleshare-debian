@@ -16,6 +16,7 @@
 
 
 using System;
+using System.Diagnostics;
 
 using Gtk;
 using Mono.Unix;
@@ -29,31 +30,17 @@ namespace SparkleShare {
         private Label updates;
 
 
-        // Short alias for the translations
-        public static string _ (string s)
-        {
-            return Catalog.GetString (s);
-        }
-
-
         public SparkleAbout () : base ("")
         {
-            DeleteEvent += delegate (object o, DeleteEventArgs args) {
-                Controller.WindowClosed ();
-                args.RetVal = true;
-            };
-
-
             DefaultSize    = new Gdk.Size (600, 260);
             Resizable      = false;
             BorderWidth    = 0;
             IconName       = "folder-sparkleshare";
             WindowPosition = WindowPosition.Center;
-            Title          = _("About SparkleShare");
+            Title          = "About SparkleShare";
             AppPaintable   = true;
 
-            string image_path = new string [] {SparkleUI.AssetsPath,
-                 "pixmaps", "about.png"}.Combine ();
+            string image_path = new string [] { SparkleUI.AssetsPath, "pixmaps", "about.png" }.Combine ();
 
             Realize ();
             Gdk.Pixbuf buf = new Gdk.Pixbuf (image_path);
@@ -62,7 +49,20 @@ namespace SparkleShare {
             GdkWindow.SetBackPixmap (map, false);
 
             CreateAbout ();
+
+
+            DeleteEvent += delegate (object o, DeleteEventArgs args) {
+                Controller.WindowClosed ();
+                args.RetVal = true;
+            };
             
+            KeyPressEvent += delegate (object o, KeyPressEventArgs args) {
+                if (args.Event.Key == Gdk.Key.Escape ||
+                    (args.Event.State == Gdk.ModifierType.ControlMask && args.Event.Key == Gdk.Key.w)) {
+                    
+                    Controller.WindowClosed ();
+                }
+            };
 
             Controller.HideWindowEvent += delegate {
                 Application.Invoke (delegate {
@@ -77,29 +77,9 @@ namespace SparkleShare {
                 });
             };
 
-            Controller.NewVersionEvent += delegate (string new_version) {
+            Controller.UpdateLabelEvent += delegate (string text) {
                 Application.Invoke (delegate {
-                    this.updates.Markup = String.Format ("<span font_size='small' fgcolor='#729fcf'>{0}</span>",
-                        String.Format ("A newer version ({0}) is available!", new_version));
-
-                    this.updates.ShowAll ();
-                });
-            };
-
-            Controller.VersionUpToDateEvent += delegate {
-                Application.Invoke (delegate {
-                    this.updates.Markup = String.Format ("<span font_size='small' fgcolor='#729fcf'>{0}</span>",
-                        "You are running the latest version.");
-
-                    this.updates.ShowAll ();
-                });
-            };
-
-            Controller.CheckingForNewVersionEvent += delegate {
-                Application.Invoke (delegate {
-                    this.updates.Markup = String.Format ("<span font_size='small' fgcolor='#729fcf'>{0}</span>",
-                        "Checking for updates...");
-
+                    this.updates.Markup = String.Format ("<span font_size='small' fgcolor='#8cc4ff'>{0}</span>", text);
                     this.updates.ShowAll ();
                 });
             };
@@ -109,17 +89,14 @@ namespace SparkleShare {
         private void CreateAbout ()
         {
             Label version = new Label () {
-                Markup = "<span font_size='small' fgcolor='white'>" +
-                         "version " + Controller.RunningVersion +
-                         "</span>",
+                Markup = string.Format ("<span font_size='small' fgcolor='white'>version {0}</span>",
+                    Controller.RunningVersion),
                 Xalign = 0,
                 Xpad = 300
             };
 
             this.updates = new Label () {
-                Markup = "<span font_size='small' fgcolor='#729fcf'>" +
-                         "Checking for updates..." +
-                         "</span>",
+                Markup = "<span font_size='small' fgcolor='#729fcf'>Checking for updates...</span>",
                 Xalign = 0,
                 Xpad = 300
             };
@@ -137,7 +114,7 @@ namespace SparkleShare {
                 LineWrap     = true,
                 LineWrapMode = Pango.WrapMode.Word,
                 Markup       = "<span font_size='small' fgcolor='white'>" +
-                               "SparkleShare Open Source software. You are free to use, modify, " +
+                               "SparkleShare is Open Source software. You are free to use, modify, " +
                                "and redistribute it under the GNU General Public License version 3 or later." +
                                "</span>",
                 WidthRequest = 330,
@@ -146,20 +123,60 @@ namespace SparkleShare {
                 Xpad         = 300,
             };
 
-            VBox layout_horizontal = new VBox (false, 0) {
+            VBox layout_vertical = new VBox (false, 0) {
                 BorderWidth   = 0,
                 HeightRequest = 260,
                 WidthRequest  = 640
             };
-
-            layout_horizontal.PackStart (new Label (""), false, false, 42);
-            layout_horizontal.PackStart (version, false, false, 0);
-            layout_horizontal.PackStart (this.updates, false, false, 0);
-            layout_horizontal.PackStart (copyright, false, false, 9);
-            layout_horizontal.PackStart (license, false, false, 0);
-            layout_horizontal.PackStart (new Label (""), false, false, 0);
-
-            Add (layout_horizontal);
+			
+			HBox links_layout = new HBox (false, 6);
+			
+			SparkleLink website_link        = new SparkleLink ("Website", Controller.WebsiteLinkAddress);
+			SparkleLink credits_link        = new SparkleLink ("Credits", Controller.CreditsLinkAddress);
+            SparkleLink report_problem_link = new SparkleLink ("Report a problem", Controller.ReportProblemLinkAddress);
+            SparkleLink debug_log_link = new SparkleLink ("Debug log", Controller.DebugLogLinkAddress);
+			
+			links_layout.PackStart (new Label (""), false, false, 143);
+			links_layout.PackStart (website_link, false, false, 9);
+			links_layout.PackStart (credits_link, false, false, 9);
+            links_layout.PackStart (report_problem_link, false, false, 9);
+            links_layout.PackStart (debug_log_link, false, false, 9);
+			
+            layout_vertical.PackStart (new Label (""), false, false, 42);
+            layout_vertical.PackStart (version, false, false, 0);
+            layout_vertical.PackStart (this.updates, false, false, 0);
+            layout_vertical.PackStart (copyright, false, false, 9);
+            layout_vertical.PackStart (license, false, false, 0);
+			layout_vertical.PackStart (links_layout, false, false, 12);
+			
+            Add (layout_vertical);
         }
     }
+	
+	
+	public class SparkleLink : EventBox {
+		
+		public SparkleLink (string text, string url)
+		{
+			VisibleWindow = false;
+			
+			Label label = new Label () {
+				Markup = "<span size='small' fgcolor='#729fcf' underline='single'>" + text + "</span>"
+			};
+			
+			EnterNotifyEvent += delegate {
+				GdkWindow.Cursor = new Gdk.Cursor (Gdk.CursorType.Hand1);	
+			};
+			
+			LeaveNotifyEvent += delegate {
+				GdkWindow.Cursor = new Gdk.Cursor (Gdk.CursorType.Arrow);	
+			};
+			
+			ButtonPressEvent += delegate {
+				Program.Controller.OpenWebsite (url);
+			};
+			
+			Add (label);
+		}
+	}
 }

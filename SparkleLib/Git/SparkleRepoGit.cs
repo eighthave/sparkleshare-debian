@@ -17,19 +17,94 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using SparkleLib;
 
 namespace SparkleLib.Git {
 
     public class SparkleRepo : SparkleRepoBase {
 
-		private bool author_set = false;
+        private bool user_is_set;
+        private bool use_git_bin;
+        private bool is_encrypted;
+
+        private string cached_branch;
+
+        private Regex progress_regex = new Regex (@"([0-9]+)%", RegexOptions.Compiled);
+        private Regex speed_regex    = new Regex (@"([0-9\.]+) ([KM])iB/s", RegexOptions.Compiled);
+
+        private Regex log_regex = new Regex (@"commit ([a-z0-9]{40})\n" +
+                                              "Author: (.+) <(.+)>\n" +
+                                              "*" +
+                                              "Date:   ([0-9]{4})-([0-9]{2})-([0-9]{2}) " +
+                                              "([0-9]{2}):([0-9]{2}):([0-9]{2}) (.[0-9]{4})\n" +
+                                              "*", RegexOptions.Compiled);
+
+        private string branch {
+            get {
+                if (!string.IsNullOrEmpty (this.cached_branch)) 
+                    return this.cached_branch;
+
+                string rebase_apply_path = new string [] { LocalPath, ".git", "rebase-apply" }.Combine ();
+
+                while (Directory.Exists (rebase_apply_path) && HasLocalChanges) {
+                    try {
+                        ResolveConflict ();
+                        
+                    } catch (IOException e) {
+                        SparkleLogger.LogInfo ("Git", Name + " | Failed to resolve conflict, trying again...", e);
+                    }
+                }
+
+                SparkleGit git = new SparkleGit (LocalPath, "rev-parse --abbrev-ref HEAD");
+                this.cached_branch = git.StartAndReadStandardOutput ();
+
+                return this.cached_branch;
+            }
+        }
 
 
-        public SparkleRepo (string path) : base (path)
+        public SparkleRepo (string path, SparkleConfig config) : base (path, config)
         {
+            SparkleGit git = new SparkleGit (LocalPath, "config core.ignorecase false");
+            git.StartAndWaitForExit ();
+
+            // Check if we should use git-bin
+            git = new SparkleGit (LocalPath, "config --get filter.bin.clean");
+            git.StartAndWaitForExit ();
+
+            this.use_git_bin = (git.ExitCode == 0);
+
+            if (this.use_git_bin)
+                ConfigureGitBin ();
+
+            git = new SparkleGit (LocalPath, "config remote.origin.url \"" + RemoteUrl + "\"");
+            git.StartAndWaitForExit ();
+
+            string password_file_path = Path.Combine (LocalPath, ".git", "password");
+
+            if (File.Exists (password_file_path))
+                this.is_encrypted = true;
+        }
+
+
+        private void ConfigureGitBin ()
+        {
+            SparkleGit git = new SparkleGit (LocalPath, "config filter.bin.clean \"git bin clean %f\"");
+            git.StartAndWaitForExit ();
+            
+            git = new SparkleGit (LocalPath, "config filter.bin.smudge \"git bin smudge\"");
+            git.StartAndWaitForExit ();
+
+            git = new SparkleGit (LocalPath, "config git-bin.sftpUrl \"" + RemoteUrl + "\"");
+            git.StartAndWaitForExit ();
+            
+            git = new SparkleGit (LocalPath, "config git-bin.sftpPrivateKeyFile \"" + base.local_config.User.PrivateKeyFilePath + "\"");
+            git.StartAndWaitForExit ();
         }
 
 
@@ -45,10 +120,11 @@ namespace SparkleLib.Git {
 
         public override double Size {
             get {
-                string file_path = new string [] {LocalPath, ".git", "repo_size"}.Combine ();
+                string file_path = new string [] { LocalPath, ".git", "repo_size" }.Combine ();
 
                 try {
-                    return double.Parse (File.ReadAllText (file_path));
+                    string size = File.ReadAllText (file_path);
+                    return double.Parse (size);
 
                 } catch {
                     return 0;
@@ -59,10 +135,11 @@ namespace SparkleLib.Git {
 
         public override double HistorySize {
             get {
-                string file_path = new string [] {LocalPath, ".git", "repo_history_size"}.Combine ();
+                string file_path = new string [] { LocalPath, ".git", "repo_history_size" }.Combine ();
 
                 try {
-                    return double.Parse (File.ReadAllText (file_path));
+                    string size = File.ReadAllText (file_path);
+                    return double.Parse (size);
 
                 } catch {
                     return 0;
@@ -73,140 +150,104 @@ namespace SparkleLib.Git {
 
         private void UpdateSizes ()
         {
-            double size = CalculateSizes (
-                new DirectoryInfo (LocalPath));
+            double size         = CalculateSizes (new DirectoryInfo (LocalPath));
+            double history_size = CalculateSizes (new DirectoryInfo (Path.Combine (LocalPath, ".git")));
 
-            double history_size = CalculateSizes (
-                new DirectoryInfo (Path.Combine (LocalPath, ".git")));
-
-            string size_file_path = new string [] {LocalPath, ".git", "repo_size"}.Combine ();
-            string history_size_file_path = new string [] {LocalPath, ".git", "repo_history_size"}.Combine ();
+            string size_file_path = new string [] { LocalPath, ".git", "repo_size" }.Combine ();
+            string history_size_file_path = new string [] { LocalPath, ".git", "repo_history_size" }.Combine ();
 
             File.WriteAllText (size_file_path, size.ToString ());
             File.WriteAllText (history_size_file_path, history_size.ToString ());
         }
 
 
-        public override void CreateInitialChangeSet ()
-        {
-            base.CreateInitialChangeSet ();
-            SyncUp (); // FIXME: Weird freeze happens when base class handles this
-        }
-
-
-        public override string [] UnsyncedFilePaths {
-            get {
-                List<string> file_paths = new List<string> ();
-
-                SparkleGit git = new SparkleGit (LocalPath, "status --porcelain");
-                git.Start ();
-
-                // Reading the standard output HAS to go before
-                // WaitForExit, or it will hang forever on output > 4096 bytes
-                string output = git.StandardOutput.ReadToEnd ().TrimEnd ();
-                git.WaitForExit ();
-
-                string [] lines = output.Split ("\n".ToCharArray ());
-                foreach (string line in lines) {
-                    if (line [1].ToString ().Equals ("M") ||
-                        line [1].ToString ().Equals ("?") ||
-                        line [1].ToString ().Equals ("A")) {
-
-                        string path = line.Substring (3);
-                        path        = path.Trim ("\"".ToCharArray ());
-                        file_paths.Add (path);
-                    }
-                }
-
-                return file_paths.ToArray ();
-            }
-        }
-
-
         public override string CurrentRevision {
             get {
-                // Remove stale rebase-apply files because it
-                // makes the method return the wrong hashes.
-                string rebase_apply_file = SparkleHelpers.CombineMore (LocalPath, ".git", "rebase-apply");
-
-                if (File.Exists (rebase_apply_file))
-                    File.Delete (rebase_apply_file);
-
                 SparkleGit git = new SparkleGit (LocalPath, "rev-parse HEAD");
-                git.Start ();
-                
-                string output = git.StandardOutput.ReadToEnd ();
-                git.WaitForExit ();
+                string output  = git.StartAndReadStandardOutput ();
 
-                if (git.ExitCode == 0) {
-                    return output.TrimEnd ();
-
-                } else {
+                if (git.ExitCode == 0)
+                    return output;
+                else
                     return null;
-                }
             }
         }
 
 
         public override bool HasRemoteChanges {
             get {
-                SparkleHelpers.DebugInfo ("Git", Name + " | Checking for remote changes...");
-
+                SparkleLogger.LogInfo ("Git", Name + " | Checking for remote changes...");
                 string current_revision = CurrentRevision;
-                SparkleGit git = new SparkleGit (LocalPath, "ls-remote --exit-code \"" + RemoteUrl + "\" master");
-    
-                git.Start ();
-                git.WaitForExit ();
-    
+
+                SparkleGit git = new SparkleGit (LocalPath, "ls-remote --heads --exit-code \"" + RemoteUrl + "\" " + this.branch);
+                string output  = git.StartAndReadStandardOutput ();
+
                 if (git.ExitCode != 0)
                     return false;
-    
-                string remote_revision = git.StandardOutput.ReadToEnd ().Substring (0, 40);
-    
-                if (!remote_revision.StartsWith (current_revision)) {
-                    SparkleHelpers.DebugInfo ("Git",
-                        Name + " | Remote changes detected (local: " +
-                        current_revision + ", remote: " + remote_revision + ")");
 
-                    return true;
+                string remote_revision = "" + output.Substring (0, 40);
 
-                } else {
-                    SparkleHelpers.DebugInfo ("Git",
-                        Name + " | No remote changes detected (local+remote: " + current_revision + ")");
+                if (!remote_revision.Equals (current_revision)) {
+                    git = new SparkleGit (LocalPath, "merge-base " + remote_revision + " master");
+                    git.StartAndWaitForExit ();
 
-                    return false;
-                }
+                    if (git.ExitCode != 0) {
+                        SparkleLogger.LogInfo ("Git", Name + " | Remote changes found, local: " +
+                            current_revision + ", remote: " + remote_revision);
+
+                        Error = ErrorStatus.None;
+                        return true;
+                    
+                    } else {
+                        SparkleLogger.LogInfo ("Git", Name + " | Remote " + remote_revision + " is already in our history");
+                        return false;
+                    }
+                } 
+
+                SparkleLogger.LogInfo ("Git", Name + " | No remote changes, local+remote: " + current_revision);
+                return false;
             }
         }
 
 
         public override bool SyncUp ()
         {
-            if (HasLocalChanges) {
-                Add ();
-
-                string message = FormatCommitMessage ();
-                Commit (message);
+            if (!Add ()) {
+                Error = ErrorStatus.UnreadableFiles;
+                return false;
             }
 
-            SparkleGit git = new SparkleGit (LocalPath,
-                "push --progress " + // Redirects progress stats to standarderror
-                "\"" + RemoteUrl + "\" master");
+            string message = FormatCommitMessage ();
 
+            if (message != null)
+                Commit (message);
+ 
+            if (this.use_git_bin) {
+                SparkleGitBin git_bin = new SparkleGitBin (LocalPath, "push");
+                git_bin.StartAndWaitForExit ();
+
+                // TODO: Progress
+            }
+
+            SparkleGit git = new SparkleGit (LocalPath, "push --progress \"" + RemoteUrl + "\" " + this.branch);
             git.StartInfo.RedirectStandardError = true;
             git.Start ();
 
             double percentage = 1.0;
-            Regex progress_regex = new Regex (@"([0-9]+)%", RegexOptions.Compiled);
 
             while (!git.StandardError.EndOfStream) {
                 string line   = git.StandardError.ReadLine ();
-                Match match   = progress_regex.Match (line);
-                string speed  = "";
+                Match match   = this.progress_regex.Match (line);
+                double speed  = 0.0;
                 double number = 0.0;
 
                 if (match.Success) {
-                    number = double.Parse (match.Groups [1].Value);
+                    try {
+                        number = double.Parse (match.Groups [1].Value, new CultureInfo ("en-US"));
+                    
+                    } catch (FormatException) {
+                        SparkleLogger.LogInfo ("Git", "Error parsing progress: \"" + match.Groups [1] + "\"");
+                    }
 
                     // The pushing progress consists of two stages: the "Compressing
                     // objects" stage which we count as 20% of the total progress, and
@@ -216,26 +257,28 @@ namespace SparkleLib.Git {
                         number = (number / 100 * 20);
 
                     } else {
-                        if (line.StartsWith ("ERROR: QUOTA EXCEEDED")) {
-                            int quota_limit = int.Parse (line.Substring (21).Trim ());
-                            throw new QuotaExceededException ("Quota exceeded", quota_limit);
-                        }
-
-
                         // "Writing objects" stage
                         number = (number / 100 * 80 + 20);
+                        Match speed_match = this.speed_regex.Match (line);
 
-                        if (line.Contains ("|")) {
-                            speed = line.Substring (line.IndexOf ("|") + 1).Trim ();
-                            speed = speed.Replace (", done.", "").Trim ();
-                            speed = speed.Replace ("i", "");
-                            speed = speed.Replace ("KB/s", "ᴋʙ/s");
-                            speed = speed.Replace ("MB/s", "ᴍʙ/s");
-                        }
+                        if (speed_match.Success) {
+                            try {
+                                speed = double.Parse (speed_match.Groups [1].Value, new CultureInfo ("en-US")) * 1024;
+                            
+                            } catch (FormatException) {
+                                SparkleLogger.LogInfo ("Git", "Error parsing speed: \"" + speed_match.Groups [1] + "\"");
+                            }
+
+                            if (speed_match.Groups [2].Value.Equals ("M"))
+                                speed = speed * 1024;
+                        }    
                     }
 
                 } else {
-                    SparkleHelpers.DebugInfo ("Git", Name + " | " + line);
+                    SparkleLogger.LogInfo ("Git", Name + " | " + line);
+
+                    if (FindError (line))
+                        return false;
                 }
 
                 if (number >= percentage) {
@@ -245,35 +288,58 @@ namespace SparkleLib.Git {
             }
 
             git.WaitForExit ();
-
             UpdateSizes ();
-            ChangeSets = GetChangeSets ();
 
-            if (git.ExitCode == 0)
+            if (git.ExitCode == 0) {
+                ClearCache ();
+
+                string salt_file_path = new string [] { LocalPath, ".git", "salt" }.Combine ();
+
+                // If the repo is encrypted, create a branch to 
+                // store the salt in and push it to the host
+                if (File.Exists (salt_file_path)) {
+                    string salt = File.ReadAllText (salt_file_path).Trim ();
+
+                    SparkleGit git_salt = new SparkleGit (LocalPath, "branch salt-" + salt);
+                    git_salt.StartAndWaitForExit ();
+
+                    git_salt = new SparkleGit (LocalPath, "push origin salt-" + salt);
+                    git_salt.StartAndWaitForExit ();
+
+                    File.Delete (salt_file_path);
+                }
+
                 return true;
-            else
+
+            } else {
+                Error = ErrorStatus.HostUnreachable;
                 return false;
+            }
         }
 
 
         public override bool SyncDown ()
         {
-            SparkleGit git = new SparkleGit (LocalPath, "fetch --progress \"" + RemoteUrl + "\" master");
+            SparkleGit git = new SparkleGit (LocalPath, "fetch --progress \"" + RemoteUrl + "\" " + this.branch);
 
             git.StartInfo.RedirectStandardError = true;
             git.Start ();
 
             double percentage = 1.0;
-            Regex progress_regex = new Regex (@"([0-9]+)%", RegexOptions.Compiled);
 
             while (!git.StandardError.EndOfStream) {
                 string line   = git.StandardError.ReadLine ();
-                Match match   = progress_regex.Match (line);
-                string speed  = "";
+                Match match   = this.progress_regex.Match (line);
+                double speed  = 0.0;
                 double number = 0.0;
 
                 if (match.Success) {
-                    number = double.Parse (match.Groups [1].Value);
+                    try {
+                        number = double.Parse (match.Groups [1].Value, new CultureInfo ("en-US"));   
+                    
+                    } catch (FormatException) {
+                        SparkleLogger.LogInfo ("Git", "Error parsing progress: \"" + match.Groups [1] + "\"");
+                    }
 
                     // The fetching progress consists of two stages: the "Compressing
                     // objects" stage which we count as 20% of the total progress, and
@@ -285,18 +351,26 @@ namespace SparkleLib.Git {
                     } else {
                         // "Writing objects" stage
                         number = (number / 100 * 80 + 20);
-
-                        if (line.Contains ("|")) {
-                            speed = line.Substring (line.IndexOf ("|") + 1).Trim ();
-                            speed = speed.Replace (", done.", "").Trim ();
-                            speed = speed.Replace ("i", "");
-                            speed = speed.Replace ("KB/s", "ᴋʙ/s");
-                            speed = speed.Replace ("MB/s", "ᴍʙ/s");
+                        Match speed_match = this.speed_regex.Match (line);
+                        
+                        if (speed_match.Success) {
+                            try {
+                                speed = double.Parse (speed_match.Groups [1].Value, new CultureInfo ("en-US")) * 1024;
+                                
+                            } catch (FormatException) {
+                                SparkleLogger.LogInfo ("Git", "Error parsing speed: \"" + speed_match.Groups [1] + "\"");
+                            }
+                            
+                            if (speed_match.Groups [2].Value.Equals ("M"))
+                                speed = speed * 1024;
                         }
                     }
 
                 } else {
-                    SparkleHelpers.DebugInfo ("Git", Name + " | " + line);
+                    SparkleLogger.LogInfo ("Git", Name + " | " + line);
+
+                    if (FindError (line))
+                        return false;
                 }
                 
 
@@ -307,23 +381,19 @@ namespace SparkleLib.Git {
             }
 
             git.WaitForExit ();
-
             UpdateSizes ();
 
             if (git.ExitCode == 0) {
-                Rebase ();
+                if (Rebase ()) {
+                    ClearCache ();
+                    return true;
                 
-				File.SetAttributes (
-					Path.Combine (LocalPath, ".sparkleshare"),
-					FileAttributes.Hidden
-				);
-
-                ChangeSets = GetChangeSets ();
-
-				return true;
+                } else {
+                    return false;
+                }
 
             } else {
-                ChangeSets = GetChangeSets ();
+                Error = ErrorStatus.HostUnreachable;
                 return false;
             }
         }
@@ -334,116 +404,129 @@ namespace SparkleLib.Git {
                 PrepareDirectories (LocalPath);
 
                 SparkleGit git = new SparkleGit (LocalPath, "status --porcelain");
-                git.Start ();
+                string output  = git.StartAndReadStandardOutput ();
 
-                // Reading the standard output HAS to go before
-                // WaitForExit, or it will hang forever on output > 4096 bytes
-                string output = git.StandardOutput.ReadToEnd ().TrimEnd ();
-                git.WaitForExit ();
-
-                string [] lines = output.Split ("\n".ToCharArray ());
-
-                foreach (string line in lines) {
-                    if (line.Trim ().Length > 0)
-                        return true;
-                }
-
-                return false;
+                return !string.IsNullOrEmpty (output);
             }
         }
 
 
         public override bool HasUnsyncedChanges {
             get {
-                string unsynced_file_path = SparkleHelpers.CombineMore (LocalPath,
-                    ".git", "has_unsynced_changes");
-
+                string unsynced_file_path =  new string [] { LocalPath, ".git", "has_unsynced_changes" }.Combine ();
                 return File.Exists (unsynced_file_path);
             }
 
             set {
-                string unsynced_file_path = SparkleHelpers.CombineMore (LocalPath,
-                    ".git", "has_unsynced_changes");
+                string unsynced_file_path = new string [] { LocalPath, ".git", "has_unsynced_changes" }.Combine ();
 
-                if (value) {
-                    if (!File.Exists (unsynced_file_path))
-                        File.Create (unsynced_file_path).Close ();
-
-                } else {
+                if (value)
+                    File.WriteAllText (unsynced_file_path, "");
+                else
                     File.Delete (unsynced_file_path);
-                }
             }
         }
 
 
         // Stages the made changes
-        private void Add ()
+        private bool Add ()
         {
             SparkleGit git = new SparkleGit (LocalPath, "add --all");
-            git.Start ();
-            git.WaitForExit ();
+            git.StartAndWaitForExit ();
 
-            SparkleHelpers.DebugInfo ("Git", Name + " | Changes staged");
+            return (git.ExitCode == 0);
         }
 
 
         // Commits the made changes
         private void Commit (string message)
-		{
-			SparkleGit git;
+        {
+            SparkleGit git;
 
-			if (!this.author_set) {
-	            git = new SparkleGit (LocalPath,
-	                "config user.name \"" + SparkleConfig.DefaultConfig.User.Name + "\"");
+            if (!this.user_is_set) {
+                git = new SparkleGit (LocalPath, "config user.name \"" + base.local_config.User.Name + "\"");
+                git.StartAndWaitForExit ();
 
-				git.Start ();
-				git.WaitForExit ();
+                git = new SparkleGit (LocalPath, "config user.email \"" + base.local_config.User.Email + "\"");
+                git.StartAndWaitForExit ();
 
-	            git = new SparkleGit (LocalPath,
-	                "config user.email \"" + SparkleConfig.DefaultConfig.User.Email + "\"");
+                this.user_is_set = true;
+            }
 
-				git.Start ();
-				git.WaitForExit ();
+            git = new SparkleGit (LocalPath, "commit --all --message=\"" + message + "\" " +
+                "--author=\"" + base.local_config.User.Name + " <" + base.local_config.User.Email + ">\"");
 
-				this.author_set = true;
-			}
-
-            git = new SparkleGit (LocalPath,
-                "commit -m \"" + message + "\" " +
-                "--author=\"" + SparkleConfig.DefaultConfig.User.Name +
-                " <" + SparkleConfig.DefaultConfig.User.Email + ">\"");
-
-            git.Start ();
-            git.StandardOutput.ReadToEnd ();
-            git.WaitForExit ();
+            git.StartAndReadStandardOutput ();
         }
 
 
         // Merges the fetched changes
-        private void Rebase ()
+        private bool Rebase ()
         {
-            if (HasLocalChanges) {
+            string message = FormatCommitMessage ();
+            
+            if (message != null) {
                 Add ();
-
-                string commit_message = FormatCommitMessage ();
-                Commit (commit_message);
+                Commit (message);
             }
 
-            SparkleGit git = new SparkleGit (LocalPath, "rebase FETCH_HEAD");
+            SparkleGit git;
+            string rebase_apply_path = new string [] { LocalPath, ".git", "rebase-apply" }.Combine ();
+
+            // Stop if we're already in a rebase because something went wrong
+            if (Directory.Exists (rebase_apply_path)) {
+                git = new SparkleGit (LocalPath, "rebase --abort");
+                git.StartAndWaitForExit ();
+
+                return false;
+            }
+
+            // Temporarily change the ignorecase setting to true to avoid
+            // conflicts in file names due to letter case changes
+            git = new SparkleGit (LocalPath, "config core.ignorecase true");
+            git.StartAndWaitForExit ();
+
+            git = new SparkleGit (LocalPath, "rebase FETCH_HEAD");
             git.StartInfo.RedirectStandardOutput = false;
 
-            git.Start ();
-            git.WaitForExit ();
+            string error_output = git.StartAndReadStandardError ();
 
             if (git.ExitCode != 0) {
-                SparkleHelpers.DebugInfo ("Git", Name + " | Conflict detected, trying to get out...");
+                // Stop when we can't rebase due to locked local files
+                // error: cannot stat 'filename': Permission denied
+                if (error_output.Contains ("error: cannot stat")) {
+                    Error = ErrorStatus.UnreadableFiles;
+                    SparkleLogger.LogInfo ("Git", Name + " | Error status changed to " + Error);
 
-                while (HasLocalChanges)
-                    ResolveConflict ();
+                    git = new SparkleGit (LocalPath, "rebase --abort");
+                    git.StartAndWaitForExit ();
 
-                SparkleHelpers.DebugInfo ("Git", Name + " | Conflict resolved");
-                OnConflictResolved ();
+                    git = new SparkleGit (LocalPath, "config core.ignorecase false");
+                    git.StartAndWaitForExit ();
+
+                    return false;
+                
+                } else {
+                    SparkleLogger.LogInfo ("Git", Name + " | Conflict detected, trying to get out...");
+                    
+                    while (Directory.Exists (rebase_apply_path) && HasLocalChanges) {
+                        try {
+                            ResolveConflict ();
+
+                        } catch (IOException e) {
+                            SparkleLogger.LogInfo ("Git", Name + " | Failed to resolve conflict, trying again...", e);
+                        }
+                    }
+
+                    SparkleLogger.LogInfo ("Git", Name + " | Conflict resolved");
+                    OnConflictResolved ();
+                }
             }
+
+            git = new SparkleGit (LocalPath, "config core.ignorecase false");
+            git.StartAndWaitForExit ();
+
+            return true;
         }
 
 
@@ -453,12 +536,12 @@ namespace SparkleLib.Git {
             // meaning, and how SparkleShare should handle them.
             //
             // DD    unmerged, both deleted    -> Do nothing
-            // AU    unmerged, added by us     -> Use theirs, save ours as a timestamped copy
+            // AU    unmerged, added by us     -> Use server's, save ours as a timestamped copy
             // UD    unmerged, deleted by them -> Use ours
-            // UA    unmerged, added by them   -> Use theirs, save ours as a timestamped copy
-            // DU    unmerged, deleted by us   -> Use theirs
-            // AA    unmerged, both added      -> Use theirs, save ours as a timestamped copy
-            // UU    unmerged, both modified   -> Use theirs, save ours as a timestamped copy
+            // UA    unmerged, added by them   -> Use server's, save ours as a timestamped copy
+            // DU    unmerged, deleted by us   -> Use server's
+            // AA    unmerged, both added      -> Use server's, save ours as a timestamped copy
+            // UU    unmerged, both modified   -> Use server's, save ours as a timestamped copy
             // ??    unmerged, new files       -> Stage the new files
             //
             // Note that a rebase merge works by replaying each commit from the working branch on
@@ -466,118 +549,204 @@ namespace SparkleLib.Git {
             // side reported as 'ours' is the so-far rebased series, starting with upstream,
             // and 'theirs' is the working branch. In other words, the sides are swapped.
             //
-            // So: 'ours' means the 'server's version' and 'theirs' means the 'local version'
+            // So: 'ours' means the 'server's version' and 'theirs' means the 'local version' after this comment
 
             SparkleGit git_status = new SparkleGit (LocalPath, "status --porcelain");
-            git_status.Start ();
-
-            // Reading the standard output HAS to go before
-            // WaitForExit, or it will hang forever on output > 4096 bytes
-            string output = git_status.StandardOutput.ReadToEnd ().TrimEnd ();
-            git_status.WaitForExit ();
+            string output         = git_status.StartAndReadStandardOutput ();
 
             string [] lines = output.Split ("\n".ToCharArray ());
+            bool changes_added = false;
 
             foreach (string line in lines) {
                 string conflicting_path = line.Substring (3);
-                conflicting_path = conflicting_path.Trim ("\"".ToCharArray ());
+                conflicting_path        = EnsureSpecialCharacters (conflicting_path);
+                conflicting_path        = conflicting_path.Replace ("\"", "\\\"");
 
-                SparkleHelpers.DebugInfo ("Git", Name + " | Conflict type: " + line);
+                SparkleLogger.LogInfo ("Git", Name + " | Conflict type: " + line);
+
+                // Ignore conflicts in the .sparkleshare file and use the local version
+                if (conflicting_path.EndsWith (".sparkleshare") || conflicting_path.EndsWith (".empty")) {
+                    // Recover local version
+                    SparkleGit git_theirs = new SparkleGit (LocalPath, "checkout --theirs \"" + conflicting_path + "\"");
+                    git_theirs.StartAndWaitForExit ();
+
+                    File.SetAttributes (Path.Combine (LocalPath, conflicting_path), FileAttributes.Hidden);
+                    changes_added = true;
+
+                    continue;
+                }
 
                 // Both the local and server version have been modified
                 if (line.StartsWith ("UU") || line.StartsWith ("AA") ||
                     line.StartsWith ("AU") || line.StartsWith ("UA")) {
 
                     // Recover local version
-                    SparkleGit git_theirs = new SparkleGit (LocalPath,
-                        "checkout --theirs \"" + conflicting_path + "\"");
-                    git_theirs.Start ();
-                    git_theirs.WaitForExit ();
+                    SparkleGit git_theirs = new SparkleGit (LocalPath, "checkout --theirs \"" + conflicting_path + "\"");
+                    git_theirs.StartAndWaitForExit ();
 
                     // Append a timestamp to local version.
                     // Windows doesn't allow colons in the file name, so
                     // we use "h" between the hours and minutes instead.
-                    string timestamp            = DateTime.Now.ToString ("MMM d H\\hmm");
-                    string their_path           = Path.GetFileNameWithoutExtension (conflicting_path) +
-                        " (" + SparkleConfig.DefaultConfig.User.Name + ", " + timestamp + ")" + Path.GetExtension (conflicting_path);
-                    
+                    string timestamp  = DateTime.Now.ToString ("MMM d H\\hmm");
+                    string their_path = Path.GetFileNameWithoutExtension (conflicting_path) +
+                        " (" + base.local_config.User.Name + ", " + timestamp + ")" + Path.GetExtension (conflicting_path);
+
                     string abs_conflicting_path = Path.Combine (LocalPath, conflicting_path);
                     string abs_their_path       = Path.Combine (LocalPath, their_path);
 
                     File.Move (abs_conflicting_path, abs_their_path);
 
                     // Recover server version
-                    SparkleGit git_ours = new SparkleGit (LocalPath,
-                        "checkout --ours \"" + conflicting_path + "\"");
-                    git_ours.Start ();
-                    git_ours.WaitForExit ();
+                    SparkleGit git_ours = new SparkleGit (LocalPath, "checkout --ours \"" + conflicting_path + "\"");
+                    git_ours.StartAndWaitForExit ();
 
-                    Add ();
-
-                    SparkleGit git_rebase_continue = new SparkleGit (LocalPath, "rebase --continue");
-                    git_rebase_continue.Start ();
-                    git_rebase_continue.WaitForExit ();
+                    changes_added = true;
 
                 // The local version has been modified, but the server version was removed
                 } else if (line.StartsWith ("DU")) {
+                    // The modified local version is already in the checkout, so it just needs to be added.
+                    // We need to specifically mention the file, so we can't reuse the Add () method
+                    SparkleGit git_add = new SparkleGit (LocalPath, "add \"" + conflicting_path + "\"");
+                    git_add.StartAndWaitForExit ();
 
-                    // The modified local version is already in the
-                    // checkout, so it just needs to be added.
-                    //
-                    // We need to specifically mention the file, so
-                    // we can't reuse the Add () method
-                    SparkleGit git_add = new SparkleGit (LocalPath,
-                        "add \"" + conflicting_path + "\"");
-                    git_add.Start ();
-                    git_add.WaitForExit ();
-
-                    SparkleGit git_rebase_continue = new SparkleGit (LocalPath, "rebase --continue");
-                    git_rebase_continue.Start ();
-                    git_rebase_continue.WaitForExit ();
-
-                // The server version has been modified, but the local version was removed
-                } else if (line.StartsWith ("UD")) {
-
-                    // We can just skip here, the server version is
-                    // already in the checkout
-                    SparkleGit git_rebase_skip = new SparkleGit (LocalPath, "rebase --skip");
-                    git_rebase_skip.Start ();
-                    git_rebase_skip.WaitForExit ();
-
-                // New local files
-                } else {
-                    Add ();
-
-                    SparkleGit git_rebase_continue = new SparkleGit (LocalPath, "rebase --continue");
-                    git_rebase_continue.Start ();
-                    git_rebase_continue.WaitForExit ();
+                    changes_added = true;
                 }
+            }
+
+            Add ();
+            SparkleGit git;
+
+            if (changes_added)
+                git = new SparkleGit (LocalPath, "rebase --continue");
+            else
+                git = new SparkleGit (LocalPath, "rebase --skip");
+
+            git.StartInfo.RedirectStandardOutput = false;
+            git.StartAndWaitForExit ();
+        }
+
+
+        public override void RestoreFile (string path, string revision, string target_file_path)
+        {
+            if (path == null)
+                throw new ArgumentNullException ("path");
+
+            if (revision == null)
+                throw new ArgumentNullException ("revision");
+
+            SparkleLogger.LogInfo ("Git", Name + " | Restoring \"" + path + "\" (revision " + revision + ")");
+
+            // git-show doesn't decrypt objects, so we can't use it to retrieve
+            // files from the index. This is a suboptimal workaround but it does the job
+            if (this.is_encrypted) {
+                // Restore the older file...
+                SparkleGit git = new SparkleGit (LocalPath, "checkout " + revision + " \"" + path + "\"");
+                git.StartAndWaitForExit ();
+
+                string local_file_path = Path.Combine (LocalPath, path);
+
+                // ...move it...
+                try {
+                    File.Move (local_file_path, target_file_path);
+                
+                } catch {
+                    SparkleLogger.LogInfo ("Git",
+                        Name + " | Could not move \"" + local_file_path + "\" to \"" + target_file_path + "\"");
+                }
+
+                // ...and restore the most recent revision
+                git = new SparkleGit (LocalPath, "checkout " + CurrentRevision + " \"" + path + "\"");
+                git.StartAndWaitForExit ();
+            
+            // The correct way
+            } else {
+                path = path.Replace ("\"", "\\\"");
+
+                SparkleGit git = new SparkleGit (LocalPath, "show " + revision + ":\"" + path + "\"");
+                git.Start ();
+
+                FileStream stream = File.OpenWrite (target_file_path);    
+                git.StandardOutput.BaseStream.CopyTo (stream);
+                stream.Close ();
+
+                git.WaitForExit ();
+            }
+
+            if (target_file_path.StartsWith (LocalPath))
+                new Thread (() => OnFileActivity (null)).Start ();
+        }
+
+
+        public override List<SparkleChangeSet> GetChangeSets (string path)
+        {
+            return GetChangeSetsInternal (path);
+        }   
+
+
+        public override List<SparkleChangeSet> GetChangeSets ()
+        {
+            return GetChangeSetsInternal (null);
+        }
+
+
+        private bool FindError (string line)
+        {
+            Error = ErrorStatus.None;
+
+            if (line.Contains ("WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!") ||
+                line.Contains ("WARNING: POSSIBLE DNS SPOOFING DETECTED!")) {
+                
+                Error = ErrorStatus.HostIdentityChanged;
+                
+            } else if (line.StartsWith ("Permission denied") ||
+                       line.StartsWith ("ssh_exchange_identification: Connection closed by remote host")) {
+
+                Error = ErrorStatus.AuthenticationFailed;
+                
+            } else if (line.StartsWith ("error: Disk space exceeded")) {
+                Error = ErrorStatus.DiskSpaceExceeded;
+            
+            } else if (line.EndsWith ("does not appear to be a git repository")) {
+                Error = ErrorStatus.NotFound;
+            }
+            
+            if (Error != ErrorStatus.None) {
+                SparkleLogger.LogInfo ("Git", Name + " | Error status changed to " + Error);
+                return true;
+            
+            } else {
+                return false;
             }
         }
 
 
-        // Returns a list of the latest change sets
-        public override List<SparkleChangeSet> GetChangeSets (int count)
+        private List<SparkleChangeSet> GetChangeSetsInternal (string path)
         {
-            if (count < 1)
-                count = 30;
-
-            count = 150;
-
             List <SparkleChangeSet> change_sets = new List <SparkleChangeSet> ();
+            SparkleGit git;
 
-            SparkleGit git_log = new SparkleGit (LocalPath,
-                "log -" + count + " --raw -M --date=iso --format=medium --no-color --no-merges");
+            if (path == null) {
+                git = new SparkleGit (LocalPath, "log --since=1.month --raw --find-renames --date=iso " +
+                    "--format=medium --no-color --no-merges");
 
-            git_log.Start ();
+            } else {
+                path = path.Replace ("\\", "/");
 
-            // Reading the standard output HAS to go before
-            // WaitForExit, or it will hang forever on output > 4096 bytes
-            string output = git_log.StandardOutput.ReadToEnd ();
-            git_log.WaitForExit ();
+                git = new SparkleGit (LocalPath, "log --raw --find-renames --date=iso " +
+                    "--format=medium --no-color --no-merges -- \"" + path + "\"");
+            }
 
-            string [] lines       = output.Split ("\n".ToCharArray ());
-            List <string> entries = new List <string> ();
+            string output = git.StartAndReadStandardOutput ();
+
+            if (path == null && string.IsNullOrWhiteSpace (output)) {
+                git = new SparkleGit (LocalPath, "log -n 75 --raw --find-renames --date=iso " +
+                    "--format=medium --no-color --no-merges");
+
+                output = git.StartAndReadStandardOutput ();
+            }
+
+            string [] lines      = output.Split ("\n".ToCharArray ());
+            List<string> entries = new List <string> ();
 
             int line_number = 0;
             bool first_pass = true;
@@ -603,15 +772,9 @@ namespace SparkleLib.Git {
 
             entries.Add (last_entry);
 
-            Regex regex = new Regex (@"commit ([a-z0-9]{40})\n" +
-                "Author: (.+) <(.+)>\n" +
-                "*" +
-                "Date:   ([0-9]{4})-([0-9]{2})-([0-9]{2}) " +
-                "([0-9]{2}):([0-9]{2}):([0-9]{2}) (.[0-9]{4})\n" +
-                "*", RegexOptions.Compiled);
 
             foreach (string log_entry in entries) {
-                Match match = regex.Match (log_entry);
+                Match match = this.log_regex.Match (log_entry);
 
                 if (match.Success) {
                     SparkleChangeSet change_set = new SparkleChangeSet ();
@@ -632,105 +795,174 @@ namespace SparkleLib.Git {
                     change_set.Timestamp = change_set.Timestamp.AddHours (their_offset * -1);
                     change_set.Timestamp = change_set.Timestamp.AddHours (our_offset);
 
-
                     string [] entry_lines = log_entry.Split ("\n".ToCharArray ());
 
                     foreach (string entry_line in entry_lines) {
                         if (entry_line.StartsWith (":")) {
+                            if (entry_line.Contains ("\\177"))
+                                continue;
 
-                            string change_type = entry_line [37].ToString ();
+                            string type_letter = entry_line [37].ToString ();
                             string file_path   = entry_line.Substring (39);
-                            string to_file_path;
-
-                            if (file_path.EndsWith (".empty"))
-                                file_path = file_path.Substring (0,
-                                    file_path.Length - ".empty".Length);
+                            bool change_is_folder = false;
 
                             if (file_path.Equals (".sparkleshare"))
                                 continue;
 
-                            if (change_type.Equals ("A")) {
-                                change_set.Changes.Add (
-                                    new SparkleChange () {
-                                        Path      = file_path,
-                                        Timestamp = change_set.Timestamp,
-                                        Type      = SparkleChangeType.Added
-                                    }
-                                );
+                            if (file_path.EndsWith (".empty")) { 
+                                file_path        = file_path.Substring (0, file_path.Length - ".empty".Length);
+                                change_is_folder = true;
+                            }
 
-                            } else if (change_type.Equals ("M")) {
-                                change_set.Changes.Add (
-                                    new SparkleChange () {
-                                        Path      = file_path,
-                                        Timestamp = change_set.Timestamp,
-                                        Type      = SparkleChangeType.Edited
-                                    }
-                                );
+                            file_path = EnsureSpecialCharacters (file_path);
+                            file_path = file_path.Replace ("\\\"", "\"");
 
-                            } else if (change_type.Equals ("D")) {
-                                change_set.Changes.Add (
-                                    new SparkleChange () {
-                                        Path      = file_path,
-                                        Timestamp = change_set.Timestamp,
-                                        Type      = SparkleChangeType.Deleted
-                                    }
-                                );
+                            if (type_letter.Equals ("R")) {
+                                int tab_pos         = entry_line.LastIndexOf ("\t");
+                                file_path           = entry_line.Substring (42, tab_pos - 42);
+                                string to_file_path = entry_line.Substring (tab_pos + 1);
 
-                            } else if (change_type.Equals ("R")) {
-                                int tab_pos  = entry_line.LastIndexOf ("\t");
-                                file_path    = entry_line.Substring (42, tab_pos - 42);
-                                to_file_path = entry_line.Substring (tab_pos + 1);
+                                file_path    = EnsureSpecialCharacters (file_path);
+                                to_file_path = EnsureSpecialCharacters (to_file_path);
 
-                                if (file_path.EndsWith (".empty"))
+                                file_path = file_path.Replace ("\\\"", "\"");
+                                to_file_path = to_file_path.Replace ("\\\"", "\"");
+
+                                if (file_path.EndsWith (".empty")) {
                                     file_path = file_path.Substring (0, file_path.Length - 6);
+                                    change_is_folder = true;
+                                }
 
-                                if (to_file_path.EndsWith (".empty"))
+                                if (to_file_path.EndsWith (".empty")) {
                                     to_file_path = to_file_path.Substring (0, to_file_path.Length - 6);
+                                    change_is_folder = true;
+                                }
 
                                 change_set.Changes.Add (
                                     new SparkleChange () {
                                         Path        = file_path,
+                                        IsFolder    = change_is_folder,
                                         MovedToPath = to_file_path,
                                         Timestamp   = change_set.Timestamp,
                                         Type        = SparkleChangeType.Moved
                                     }
                                 );
+
+                            } else {
+                                SparkleChangeType change_type = SparkleChangeType.Added;
+
+                                if (type_letter.Equals ("M")) {
+                                    change_type = SparkleChangeType.Edited;
+
+                                } else if (type_letter.Equals ("D")) {
+                                   change_type = SparkleChangeType.Deleted;
+                                }
+
+                                change_set.Changes.Add (
+                                    new SparkleChange () {
+                                        Path      = file_path,
+                                        IsFolder  = change_is_folder,
+                                        Timestamp = change_set.Timestamp,
+                                        Type      = change_type
+                                    }
+                                );
                             }
                         }
                     }
 
-                    if (change_set.Changes.Count > 0) {
-                        if (change_sets.Count > 0) {
-                            SparkleChangeSet last_change_set = change_sets [change_sets.Count - 1];
+                    if (change_sets.Count > 0 && path == null) {
+                        SparkleChangeSet last_change_set = change_sets [change_sets.Count - 1];
 
-                            if (change_set.Timestamp.Year  == last_change_set.Timestamp.Year &&
-                                change_set.Timestamp.Month == last_change_set.Timestamp.Month &&
-                                change_set.Timestamp.Day   == last_change_set.Timestamp.Day &&
-                                change_set.User.Name.Equals (last_change_set.User.Name)) {
+                        if (change_set.Timestamp.Year  == last_change_set.Timestamp.Year &&
+                            change_set.Timestamp.Month == last_change_set.Timestamp.Month &&
+                            change_set.Timestamp.Day   == last_change_set.Timestamp.Day &&
+                            change_set.User.Name.Equals (last_change_set.User.Name)) {
 
-                                last_change_set.Changes.AddRange (change_set.Changes);
+                            last_change_set.Changes.AddRange (change_set.Changes);
 
-                                if (DateTime.Compare (last_change_set.Timestamp, change_set.Timestamp) < 1) {
-                                    last_change_set.FirstTimestamp = last_change_set.Timestamp;
-                                    last_change_set.Timestamp      = change_set.Timestamp;
-                                    last_change_set.Revision       = change_set.Revision;
-
-                                } else {
-                                    last_change_set.FirstTimestamp = change_set.Timestamp;
-                                }
+                            if (DateTime.Compare (last_change_set.Timestamp, change_set.Timestamp) < 1) {
+                                last_change_set.FirstTimestamp = last_change_set.Timestamp;
+                                last_change_set.Timestamp      = change_set.Timestamp;
+                                last_change_set.Revision       = change_set.Revision;
 
                             } else {
-                                change_sets.Add (change_set);
+                                last_change_set.FirstTimestamp = change_set.Timestamp;
                             }
 
                         } else {
                             change_sets.Add (change_set);
                         }
+
+                    } else {
+                        if (path != null) {
+                            List<SparkleChange> changes_to_skip = new List<SparkleChange> ();
+
+                            foreach (SparkleChange change in change_set.Changes) {
+                                if ((change.Type == SparkleChangeType.Deleted || change.Type == SparkleChangeType.Moved)
+                                    && change.Path.Equals (path)) {
+
+                                    changes_to_skip.Add (change);
+                                }
+                            }
+
+                            foreach (SparkleChange change_to_skip in changes_to_skip)
+                                change_set.Changes.Remove (change_to_skip);
+                        }
+                                        
+                        change_sets.Add (change_set);
                     }
                 }
             }
 
             return change_sets;
+        }
+
+
+        private string EnsureSpecialCharacters (string path)
+        {
+            // The path is quoted if it contains special characters
+            if (path.StartsWith ("\""))
+                path = ResolveSpecialChars (path.Substring (1, path.Length - 2));
+
+            return path;
+        }
+
+
+        private string ResolveSpecialChars (string s)
+        {
+            StringBuilder builder = new StringBuilder (s.Length);
+            List<byte> codes      = new List<byte> ();
+
+            for (int i = 0; i < s.Length; i++) {
+                while (s [i] == '\\' &&
+                    s.Length - i > 3 &&
+                    char.IsNumber (s [i + 1]) &&
+                    char.IsNumber (s [i + 2]) &&
+                    char.IsNumber (s [i + 3])) {
+
+                    codes.Add (Convert.ToByte (s.Substring (i + 1, 3), 8));
+                    i += 4;
+                }
+
+                if (codes.Count > 0) {
+                    builder.Append (Encoding.UTF8.GetString (codes.ToArray ()));
+                    codes.Clear ();
+                }
+
+                builder.Append (s [i]);
+            }
+
+            return builder.ToString ();
+        }
+
+
+        private void ClearCache ()
+        {
+            if (!this.use_git_bin)
+                return;
+
+            SparkleGitBin git_bin = new SparkleGitBin (LocalPath, "clear -f");
+            git_bin.StartAndWaitForExit ();
         }
 
 
@@ -743,7 +975,7 @@ namespace SparkleLib.Git {
         {
             try {
                 foreach (string child_path in Directory.GetDirectories (path)) {
-                    if (SparkleHelpers.IsSymlink (child_path))
+                    if (IsSymlink (child_path))
                         continue;
 
                     if (child_path.EndsWith (".git")) {
@@ -754,7 +986,7 @@ namespace SparkleLib.Git {
     
                         if (File.Exists (HEAD_file_path)) {
                             File.Move (HEAD_file_path, HEAD_file_path + ".backup");
-                            SparkleHelpers.DebugInfo ("Git", Name + " | Renamed " + HEAD_file_path);
+                            SparkleLogger.LogInfo ("Git", Name + " | Renamed " + HEAD_file_path);
                         }
     
                         continue;
@@ -771,14 +1003,15 @@ namespace SparkleLib.Git {
                         try {
                             File.WriteAllText (Path.Combine (path, ".empty"), "I'm a folder!");
                             File.SetAttributes (Path.Combine (path, ".empty"), FileAttributes.Hidden);
+
                         } catch {
-                            SparkleHelpers.DebugInfo ("Git", Name + " | Failed adding empty folder " + path);
+                            SparkleLogger.LogInfo ("Git", Name + " | Failed adding empty folder " + path);
                         }
                     }
                 }
 
             } catch (IOException e) {
-                SparkleHelpers.DebugInfo ("Git", "Failed preparing directory: " + e.Message);
+                SparkleLogger.LogInfo ("Git", "Failed preparing directory", e);
             }
         }
 
@@ -786,121 +1019,102 @@ namespace SparkleLib.Git {
         // Creates a pretty commit message based on what has changed
         private string FormatCommitMessage ()
         {
-            List<string> Added    = new List<string> ();
-            List<string> Modified = new List<string> ();
-            List<string> Removed  = new List<string> ();
-            string file_name      = "";
-            string message        = "";
+            int count      = 0;
+            string message = "";
 
             SparkleGit git_status = new SparkleGit (LocalPath, "status --porcelain");
             git_status.Start ();
 
-            // Reading the standard output HAS to go before
-            // WaitForExit, or it will hang forever on output > 4096 bytes
-            string output = git_status.StandardOutput.ReadToEnd ().Trim ("\n".ToCharArray ());
-            git_status.WaitForExit ();
+            while (!git_status.StandardOutput.EndOfStream) {
+                string line = git_status.StandardOutput.ReadLine ();
+                line        = line.Trim ();
 
-            string [] lines = output.Split ("\n".ToCharArray ());
-            foreach (string line in lines) {
-                if (line.StartsWith ("A"))
-                    Added.Add (line.Substring (3));
-                else if (line.StartsWith ("M"))
-                    Modified.Add (line.Substring (3));
-                else if (line.StartsWith ("D"))
-                    Removed.Add (line.Substring (3));
-                else if (line.StartsWith ("R")) {
-                    Removed.Add (line.Substring (3, (line.IndexOf (" -> ") - 3)));
-                    Added.Add (line.Substring (line.IndexOf (" -> ") + 4));
+                if (line.EndsWith (".empty") || line.EndsWith (".empty\""))
+                    line = line.Replace (".empty", "");
+
+                if (line.StartsWith ("R")) {
+                    string path = line.Substring (3, line.IndexOf (" -> ") - 3).Trim ("\"".ToCharArray ());
+                    string moved_to_path = line.Substring (line.IndexOf (" -> ") + 4).Trim ("\"".ToCharArray ());
+
+                    message +=  "< ‘" + EnsureSpecialCharacters (path) + "’\n";
+                    message +=  "> ‘" + EnsureSpecialCharacters (moved_to_path) + "’\n";
+
+                } else {
+                    if (line.StartsWith ("M")) {
+                        message += "/";
+
+                    } else if (line.StartsWith ("D")) {
+                        message += "-";
+
+                    } else {
+                        message += "+";
+                    }
+
+                    string path = line.Substring (3).Trim ("\"".ToCharArray ());
+                    message += " ‘" + EnsureSpecialCharacters (path) + "’\n";
+                }
+
+                count++;
+                if (count == 10) {
+                    message += "...\n";
+                    break;
                 }
             }
 
-            int count     = 0;
-            int max_count = 20;
+            git_status.StandardOutput.ReadToEnd ();
+            git_status.WaitForExit ();
 
-            string n = Environment.NewLine;
-
-            foreach (string added in Added) {
-                file_name = added.Trim ("\"".ToCharArray ());
-
-                if (file_name.EndsWith (".empty"))
-                    file_name = file_name.Substring (0, file_name.Length - 6);
-
-                message += "+ ‘" + file_name + "’" + n;
-
-                count++;
-                if (count == max_count)
-                    return message + "...";
-            }
-
-            foreach (string modified in Modified) {
-                file_name = modified.Trim ("\"".ToCharArray ());
-
-                if (file_name.EndsWith (".empty"))
-                    continue;
-
-                message += "/ ‘" + file_name + "’" + n;
-
-                count++;
-                if (count == max_count)
-                    return message + "...";
-            }
-
-            foreach (string removed in Removed) {
-                file_name = removed.Trim ("\"".ToCharArray ());
-
-                if (file_name.EndsWith (".empty"))
-                    file_name = file_name.Substring (0, file_name.Length - 6);
-
-                message += "- ‘" + file_name + "’" + n;
-
-                count++;
-                if (count == max_count)
-                    return message + "..." + n;
-            }
-
-            message = message.Replace ("\"", "");
-            return message.TrimEnd ();
+            if (string.IsNullOrWhiteSpace (message))
+                return null;
+            else
+                return message;
         }
 
 
         // Recursively gets a folder's size in bytes
-        private double CalculateSizes (DirectoryInfo parent)
+        private long CalculateSizes (DirectoryInfo parent)
         {
-            if (!Directory.Exists (parent.FullName))
-                return 0;
-
-            if (parent.Name.Equals ("rebase-apply"))
-                return 0;
-
-            double size = 0;
+            long size = 0;
 
             try {
-                foreach (FileInfo file in parent.GetFiles ()) {
-                    if (!file.Exists)
-                        return 0;
+                foreach (DirectoryInfo directory in parent.GetDirectories ()) {
+                    if (directory.IsSymlink () ||
+                        directory.Name.Equals (".git") || 
+                        directory.Name.Equals ("rebase-apply")) {
 
-                    if (file.Name.Equals (".empty"))
-                        File.SetAttributes (file.FullName, FileAttributes.Hidden);
+                        continue;
+                    }
 
-                    size += file.Length;
+                    size += CalculateSizes (directory);
                 }
 
             } catch (Exception e) {
-                SparkleHelpers.DebugInfo ("Local", "Error calculating size: " + e.Message);
-                return 0;
+                SparkleLogger.LogInfo ("Local", "Error calculating directory size", e);
             }
 
-
             try {
-                foreach (DirectoryInfo directory in parent.GetDirectories ())
-                    size += CalculateSizes (directory);
-
+                foreach (FileInfo file in parent.GetFiles ()) {
+                    if (file.IsSymlink ())
+                        continue;
+                    
+                    if (file.Name.Equals (".empty"))
+                        File.SetAttributes (file.FullName, FileAttributes.Hidden);
+                    else
+                        size += file.Length;
+                }
+                
             } catch (Exception e) {
-                SparkleHelpers.DebugInfo ("Local", "Error calculating size: " + e.Message);
-                return 0;
+                SparkleLogger.LogInfo ("Local", "Error calculating file size", e);
             }
 
             return size;
+        }
+
+        
+        private bool IsSymlink (string file)
+        {
+            FileAttributes attributes = File.GetAttributes (file);
+            return ((attributes & FileAttributes.ReparsePoint) == FileAttributes.ReparsePoint);
         }
     }
 }

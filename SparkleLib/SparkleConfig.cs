@@ -18,18 +18,13 @@
 using System;
 using System.IO;
 using System.Collections.Generic;
-using System.Security.Principal;
 using System.Xml;
 
 namespace SparkleLib {
 
     public class SparkleConfig : XmlDocument {
 
-        private static string default_config_path = Path.Combine (
-            Environment.GetFolderPath (Environment.SpecialFolder.ApplicationData),
-                "sparkleshare");
-
-        public static SparkleConfig DefaultConfig = new SparkleConfig (default_config_path, "config.xml");
+        public static SparkleConfig DefaultConfig;
         public static bool DebugMode = true;
 
         public string FullPath;
@@ -39,9 +34,7 @@ namespace SparkleLib {
 
         public string HomePath {
             get {
-                if (GetConfigOption ("home_path") != null)
-                    return GetConfigOption ("home_path");
-                else if (SparkleHelpers.IsWindows)
+                if (SparkleBackend.Platform == PlatformID.Win32NT)
                     return Environment.GetFolderPath (Environment.SpecialFolder.UserProfile);
                 else
                     return Environment.GetFolderPath (Environment.SpecialFolder.Personal);
@@ -51,7 +44,7 @@ namespace SparkleLib {
 
         public string FoldersPath {
             get {
-                if (GetConfigOption ("folders_path") != null)
+                if (GetConfigOption ("folders_path") != null)                      
                     return GetConfigOption ("folders_path");
                 else
                     return Path.Combine (HomePath, "SparkleShare");
@@ -61,30 +54,8 @@ namespace SparkleLib {
 
         public SparkleConfig (string config_path, string config_file_name)
         {
-            try {
-                Environment.SpecialFolder folder =
-                    (Environment.SpecialFolder) Enum.Parse(
-                                typeof(Environment.SpecialFolder), "UserProfile");
-
-                string old_path = Path.Combine (
-                    Environment.GetFolderPath (Environment.SpecialFolder.Personal), "SparkleShare");
-
-                if (Directory.Exists (old_path) &&
-                    Environment.OSVersion.Platform == PlatformID.Win32NT) {
-
-                    string new_path = Path.Combine (Environment.GetFolderPath (folder), "SparkleShare");
-                    Directory.Move (old_path, new_path);
-
-                    Console.WriteLine ("Migrated SparkleShare folder to %USERPROFILE%");
-                }
-
-            } catch (Exception e) {
-                Console.WriteLine ("Failed to migrate: " + e.Message);
-                // TODO: Remove this block when most people have migrated to the new path
-            }
-
             FullPath    = Path.Combine (config_path, config_file_name);
-            LogFilePath = Path.Combine (config_path, "debug.txt");
+            LogFilePath = Path.Combine (config_path, "debug_log.txt");
 
             if (File.Exists (LogFilePath)) {
                 try {
@@ -98,10 +69,6 @@ namespace SparkleLib {
             if (!Directory.Exists (config_path))
                 Directory.CreateDirectory (config_path);
 
-            string icons_path = Path.Combine (config_path, "icons");
-            if (!Directory.Exists (icons_path))
-                Directory.CreateDirectory (icons_path);
-
             try {
               Load (FullPath);
 
@@ -112,7 +79,6 @@ namespace SparkleLib {
                 CreateInitialConfig ();
 
             } catch (XmlException) {
-
                 FileInfo file = new FileInfo (FullPath);
 
                 if (file.Length == 0) {
@@ -165,21 +131,22 @@ namespace SparkleLib {
 
         public SparkleUser User {
             get {
-                XmlNode name_node = SelectSingleNode ("/sparkleshare/user/name/text()");
-                string name  = name_node.Value;
-
+                XmlNode name_node  = SelectSingleNode ("/sparkleshare/user/name/text()");
                 XmlNode email_node = SelectSingleNode ("/sparkleshare/user/email/text()");
-                string email = email_node.Value;
+                string user_name   = name_node.Value;
+                string user_email  = email_node.Value;
 
-                string pubkey_file_path = Path.Combine (
-                    Path.GetDirectoryName (FullPath),
-                    "sparkleshare." + email + ".key.pub"
-                );
+                SparkleUser user = new SparkleUser (user_name, user_email);
 
-                SparkleUser user = new SparkleUser (name, email);
+                string [] private_key_file_paths = Directory.GetFiles (Path.GetDirectoryName (FullPath), "*.key");
+                
+                if (private_key_file_paths.Length > 0) {
+                    user.PrivateKey         = File.ReadAllText (private_key_file_paths [0]);
+                    user.PrivateKeyFilePath = private_key_file_paths [0];
 
-                if (File.Exists (pubkey_file_path))
-                    user.PublicKey = File.ReadAllText (pubkey_file_path);
+                    user.PublicKey         = File.ReadAllText (private_key_file_paths [0] + ".pub");
+                    user.PublicKeyFilePath = private_key_file_paths [0] + ".pub";
+                }
 
                 return user;
             }
@@ -187,10 +154,9 @@ namespace SparkleLib {
             set {
                 SparkleUser user = (SparkleUser) value;
 
-                XmlNode name_node = SelectSingleNode ("/sparkleshare/user/name/text()");
-                name_node.InnerText = user.Name;
-
-                XmlNode email_node = SelectSingleNode ("/sparkleshare/user/email/text()");
+                XmlNode name_node    = SelectSingleNode ("/sparkleshare/user/name/text()");
+                XmlNode email_node   = SelectSingleNode ("/sparkleshare/user/email/text()");
+                name_node.InnerText  = user.Name;
                 email_node.InnerText = user.Email;
 
                 Save ();
@@ -205,24 +171,29 @@ namespace SparkleLib {
                 foreach (XmlNode node_folder in SelectNodes ("/sparkleshare/folder"))
                     folders.Add (node_folder ["name"].InnerText);
 
+                folders.Sort ();
+
                 return folders;
             }
         }
 
 
-        public void AddFolder (string name, string url, string backend)
+        public void AddFolder (string name, string identifier, string url, string backend)
         {
-            XmlNode node_name = CreateElement ("name");
-            node_name.InnerText = name;
+            XmlNode node_name       = CreateElement ("name");
+            XmlNode node_identifier = CreateElement ("identifier");
+            XmlNode node_url        = CreateElement ("url");
+            XmlNode node_backend    = CreateElement ("backend");
 
-            XmlNode node_url = CreateElement ("url");
-            node_url.InnerText = url;
-
-            XmlNode node_backend = CreateElement ("backend");
-            node_backend.InnerText = backend;
+            node_name.InnerText       = name;
+            node_identifier.InnerText = identifier;
+            node_url.InnerText        = url;
+            node_backend.InnerText    = backend;
 
             XmlNode node_folder = CreateNode (XmlNodeType.Element, "folder", null);
+
             node_folder.AppendChild (node_name);
+            node_folder.AppendChild (node_identifier);
             node_folder.AppendChild (node_url);
             node_folder.AppendChild (node_backend);
 
@@ -244,15 +215,47 @@ namespace SparkleLib {
         }
 
 
+        public void RenameFolder (string identifier, string name)
+        {
+            XmlNode node_folder = SelectSingleNode (
+                string.Format ("/sparkleshare/folder[identifier=\"{0}\"]", identifier));
+
+            node_folder ["name"].InnerText = name;
+            Save ();
+        }
+
+
         public string GetBackendForFolder (string name)
         {
             return GetFolderValue (name, "backend");
         }
 
 
+        public string GetIdentifierForFolder (string name)
+        {
+            return GetFolderValue (name, "identifier");
+        }
+
+
         public string GetUrlForFolder (string name)
         {
             return GetFolderValue (name, "url");
+        }
+
+
+        public bool IdentifierExists (string identifier)
+        {
+            if (identifier == null)
+                throw new ArgumentNullException ();
+
+            foreach (XmlNode node_folder in SelectNodes ("/sparkleshare/folder")) {
+                XmlElement folder_id = node_folder ["identifier"];
+
+                if (folder_id != null && identifier.Equals (folder_id.InnerText))
+                    return true;
+            }
+
+            return false;
         }
 
 
@@ -294,24 +297,6 @@ namespace SparkleLib {
         }
 
 
-        private XmlNode GetFolder (string name)
-        {
-            return SelectSingleNode (string.Format ("/sparkleshare/folder[name=\"{0}\"]", name));
-        }
-
-
-        private string GetFolderValue (string name, string key)
-        {
-            XmlNode folder = GetFolder(name);
-
-            if ((folder != null) && (folder [key] != null)) {
-                return folder [key].InnerText;
-            }
-
-            return null;
-        }
-
-
         public string GetConfigOption (string name)
         {
             XmlNode node = SelectSingleNode ("/sparkleshare/" + name);
@@ -338,27 +323,35 @@ namespace SparkleLib {
                 node_root.AppendChild (node);
             }
 
-            SparkleHelpers.DebugInfo ("Config", "Updated " + name + ":" + content);
             Save ();
+            SparkleLogger.LogInfo ("Config", "Updated option " + name + ":" + content);
+        }
+
+
+        private XmlNode GetFolder (string name)
+        {
+            return SelectSingleNode (string.Format ("/sparkleshare/folder[name=\"{0}\"]", name));
+        }
+        
+        
+        private string GetFolderValue (string name, string key)
+        {
+            XmlNode folder = GetFolder(name);
+            
+            if ((folder != null) && (folder [key] != null))
+                return folder [key].InnerText;
+            else
+                return null;
         }
 
 
         private void Save ()
         {
             if (!File.Exists (FullPath))
-                throw new ConfigFileNotFoundException (FullPath + " does not exist");
+                throw new FileNotFoundException (FullPath + " does not exist");
 
             Save (FullPath);
-            SparkleHelpers.DebugInfo ("Config", "Updated \"" + FullPath + "\"");
-        }
-    }
-
-
-    public class ConfigFileNotFoundException : Exception {
-
-        public ConfigFileNotFoundException (string message) : base (message)
-        {
+            SparkleLogger.LogInfo ("Config", "Wrote to '" + FullPath + "'");
         }
     }
 }
-

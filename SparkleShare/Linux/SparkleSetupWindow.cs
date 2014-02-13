@@ -51,6 +51,11 @@ namespace SparkleShare {
             Resizable      = false;
             WindowPosition = WindowPosition.Center;
             Deletable      = false;
+            TypeHint       = Gdk.WindowTypeHint.Dialog;
+
+            DeleteEvent += delegate (object sender, DeleteEventArgs args) {
+                args.RetVal = true;
+            };
 
             SecondaryTextColor = SparkleUIHelpers.GdkColorToHex (Style.Foreground (StateType.Insensitive));
                         

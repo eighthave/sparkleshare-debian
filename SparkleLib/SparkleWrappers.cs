@@ -40,14 +40,31 @@ namespace SparkleLib {
         public Uri RemoteUrl;
 
         public List<SparkleChange> Changes = new List<SparkleChange> ();
+
+        public string ToMessage ()
+        {
+            string message = "added ‘{0}’";
+            
+            switch (Changes [0].Type) {
+            case SparkleChangeType.Edited:  message = "edited ‘{0}’"; break;
+            case SparkleChangeType.Deleted: message = "deleted ‘{0}’"; break;
+            case SparkleChangeType.Moved:   message = "moved ‘{0}’"; break;
+            }
+
+            if (Changes.Count > 0)
+                return string.Format (message, Changes [0].Path);
+            else
+                return "did something magical";
+        }
     }
 
 
     public class SparkleChange {
 
         public SparkleChangeType Type;
-		public DateTime Timestamp;
-		
+        public DateTime Timestamp;
+        public bool IsFolder = false;
+        
         public string Path;
         public string MovedToPath;
     }
@@ -73,6 +90,20 @@ namespace SparkleLib {
         public SparkleFolder (string name)
         {
             Name = name;
+        }
+    }
+
+
+    public class SparkleAnnouncement {
+
+        public readonly string FolderIdentifier;
+        public readonly string Message;
+
+
+        public SparkleAnnouncement (string folder_identifier, string message)
+        {
+            FolderIdentifier = folder_identifier;
+            Message          = message;
         }
     }
 }

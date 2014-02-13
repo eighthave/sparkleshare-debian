@@ -3,17 +3,16 @@
     <head>
         <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
         <title>SparkleShare Event Log</title>
-        <script type="text/javascript">
-          <!-- $jquery -->
-        </script>
-
+        
+        <script type="text/javascript"><!-- $jquery --></script>
         <script type="text/javascript">
           $(document).ready(function () {
               $('dl dd:nth-child(-n+10)').css('display', 'block');
               $('.day-entry-content .event-entry:last-child').css('border', 'none');
             
-              $('dd a.windows').click(function () {
+              $('a').not('.show').click(function (event) {
                   window.external.LinkClicked($(this).attr("href"));
+                  event.preventDefault();
               });
 
               // Update the Today and Yesterday labels after midnight
@@ -28,22 +27,14 @@
                 }
               }, 60 * 1000);
 
-              $('.buddy-icon').each (function () {
-                if ($(this).css('backgroundImage').indexOf ('@') != -1) {
-                  $(this).css ('backgroundColor', '#fff');
-                }
-              });
-
-              // Hide the 'Show all' link when there are less than 10 events
+              // Hide the 'Show all' link when there are fewer than 10 events
               $('.show').each (function () {
-                var entries = $(this).parent ().find ('dl').children ().length;
+                var entry_count = $(this).parent ().find ('dl').children ().length;
 
-                if (entries <= 10) {
+                if (entry_count > 10)
+                  $(this).html ('Show all ' + entry_count + '…');
+                else
                   $(this).hide ();
-                } else {
-                  // Append the number of entries
-                  $(this).html ('Show all ' + entries);
-                }
               });
 
               // When 'Show all' is clicked, show all collapsed events
@@ -61,7 +52,7 @@
             }
 
             body {
-                background-color: #fff;
+                background-color: #fefefe;
                 color: <!-- $body-color -->;
                 font-size: <!-- $body-font-size -->;
                 font-family: <!-- $body-font-family -->;
@@ -69,118 +60,30 @@
                 -webkit-user-select: none;
             }
 
-            small {
-                font-size: <!-- $small-font-size -->;
-                color: <!-- $secondary-font-color -->;
-            }
-
-            .moved-arrow {
-                color: <!-- $secondary-font-color -->;
-            }
-
-            .day-entry-header {
-                color: #aaa;
-                margin-left: auto;
-                margin-right: auto;
-                display: block;
-                text-align: center;
-                padding-top: 24px;
-                font-weight: bold;
-            }
-                        
             a {
-                color:           <!-- $a-color -->;
+                color: <!-- $a-color -->;
                 text-decoration: none;
                 outline: 0;
+            }
+            
+            a.show {
+                font-size: 80%;
             }
 
             a:hover {
                 color: <!-- $a-hover-color -->;
                 text-decoration: underline;
-            }
-
-            .event-timestamp {
-                float: left;
-                font-size: 80%;
-                color: <!-- $secondary-font-color -->;
-            }
-
-            .event-user-name {
-                float: left;
-                font-weight: bold;
-            }
-
-
-            .event-folder {
-                float: right;
-                color: <!-- $secondary-font-color -->;
-                position: relative;
                 cursor: pointer;
             }
-
-            .event-folder span {
-              display: none
-            }
-
-            .event-folder:hover span {
-                display: block;
-                position: absolute;
-                top: 20px;
-                right: 0;
-                background-color: rgba(20, 20, 20, 0.8);
-                color: #fafafa;
-                padding: 7px 12px;
-                border-radius: 5px;
-                font-family: sans-serif;
+            
+            small, small a, small a:hover {
                 font-size: <!-- $small-font-size -->;
-                float: right;
+                color: <!-- $secondary-font-color -->;
             }
-
-            .event-entry {
-                padding-top: 24px;
-                padding-bottom: 14px;
-                border-bottom: 1px #ddd solid;
-                padding-left: 96px;
-                padding-right: 32px;
-                background-repeat: no-repeat;
-                background-position: 36px 24px;
-                display: block;
-            }
-
-            .action {
-                font-size: 80%;
-                margin-left: 15px;
-                float: right;
-                margin-bottom: 9px;
-                color: <!-- $a-color -->;
-            }
-
-            .action:hover {
-                color: <!-- $a-hover-color -->;
-                cursor: pointer;
-            }
-
-            .clearer {
-                clear: both;
-                backround-color: blue;
-                margin: 0;
-                padding: 0;
-                height: 0;
-            }
-
-            .separator {
-                clear: both;
-                border-bottom: 1px #ccc solid;
-                margin-top: 24px;
-                margin-bottom: 24px;
-            }
-
+            
             dl {
-                padding : 0;
-                margin:  0;
-                margin-bottom: 12px;
-                padding-top: 6px;
-                clear: both;
+                padding : 6px 0 0 0;
+                margin: 6px 0 9px 0;
                 table-layout: fixed;
             }
             
@@ -188,20 +91,61 @@
                 display: none;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                white-space: nowrap;
                 width: 90%;
-                padding: 0;
-                padding-bottom: 1px;
-                padding-left: 20px;
-                margin: 0;
-                margin-bottom: 4px;
+                padding: 0 0 1px 20px;
+                margin: 0 0 4px 0;
                 background-repeat: no-repeat;
                 background-position: center left;
             }
 
-            .document {
+            .day-entry-header {
+                color: #aaa;
+                margin-left: 32px;
+                padding-top: 22px;
+                font-weight: bold;
+            }
+            
+            .history-header {
+                color: #aaa;
+                padding-top: 22px;
+                float: left;
+                width: 90%;
+                margin-left: 32px;
+                margin-right: 32px;
+                overflow: hidden;
                 text-overflow: ellipsis;
-                width: 100%;
                 white-space: nowrap;
+            }
+            
+            .event-entry {
+                padding: 0 14px 0 64px;
+                margin: 28px 32px 28px 32px;
+                background-repeat: no-repeat;
+                background-position: 36px 24px;
+                min-height: 48px;
+            }
+            
+            .event-user-name {
+                font-weight: bold;
+            }
+            
+            .event-avatar {
+                width: 48px;
+                height: 48px;
+                border-radius: 4px;
+                position: absolute;
+                left: 32px;
+            }
+
+            .event-folder a {
+                color: <!-- $secondary-font-color -->;
+                font-size: 80%;
+            }
+
+            .separator {
+                border-bottom: 1px #ccc solid;
+                margin: 24px 0 24px 0;
             }
 
             .added {
@@ -219,22 +163,52 @@
             .moved {
                 background-image: url('<!-- $document-moved-background-image -->');
             }
-
-            .no-buddy-icon {
-                position: relative;
-                top: 0;
-                left: 0;
-                float: left;
-                margin-right: 12px;
-                width: 48px;
-                background-image: url('<!-- $no-buddy-icon-background-image -->');
-                background-repeat: no-repeat;
-                background-position: top center; 
+            
+            table {
+                width: 100%;
             }
-
-            .buddy-icon {
-                width: 48px;
-                height: 48px;
+            
+            .table-wrapper {
+                padding: 64px 32px;
+            }
+            
+            td {
+              padding: 0;
+              margin: 0;
+            }
+            
+            td.name {
+                font-weight: bold;
+                width: 45%;
+            }           
+            
+            td.time {
+                color: <!-- $secondary-font-color -->;
+                padding-right: 9px;
+                font-size: <!-- $small-font-size -->;
+            }
+            
+            td.date {
+                color: <!-- $secondary-font-color -->;
+                text-align: right;
+                padding-right: 6px;
+                font-size: <!-- $small-font-size -->;
+            }  
+            
+            td.restore {
+                text-align: right;
+                font-size: <!-- $small-font-size -->;
+            }
+            
+            td.avatar {
+                width: 32px;
+            }
+            
+            td.avatar img {
+                margin-top: 2px;
+                border-radius: 3px;
+                width: 24px;
+                height: 24px;
             }
         </style>
     </head>

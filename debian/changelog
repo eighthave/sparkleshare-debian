@@ -1,3 +1,27 @@
+sparkleshare (1.1.0-1ubuntu1) UNRELEASED; urgency=medium
+
+  * Merge with Debian unstable. Remaining Ubuntu changes:
+   - Add build-dep on libappindicator for libappindicator0.1-cil-dev
+     indicator support.
+
+ -- Andrew Starr-Bochicchio <a.starr.b@gmail.com>  Wed, 12 Feb 2014 23:41:22 -0500
+
+sparkleshare (1.1.0-1) unstable; urgency=low
+
+  * [e45ec00] Imported Upstream version 1.1.0
+  * [914d4f9] debian/watch: downloads moved to bitbucket
+
+ -- Carlos Martín Nieto <cmn@dwim.me>  Mon, 27 May 2013 15:15:33 +0100
+
+sparkleshare (1.0.0-1) unstable; urgency=low
+
+  * [9b28584] Imported Upstream version 1.0.0
+  * [7943d0f] Remove patch
+  * [4e04623] Fix the name of the news and trademark files
+  * [29653a9] Increase mono build dependency to 2.10 (Closes: #686006)
+
+ -- Carlos Martín Nieto <cmn@dwim.me>  Tue, 14 May 2013 08:33:16 +0100
+
 sparkleshare (0.9.0-2ubuntu1) quantal; urgency=low
 
   * Merge with Debian unstable, remaining changes:
