@@ -1,3 +1,10 @@
+sparkleshare (1.2-0.1) unstable; urgency=low
+
+  * Non-maintainer upload
+  * [6f73085] Imported Upstream version 1.2 (#730491)
+
+ -- Hans-Christoph Steiner <hans@eds.org>  Mon, 20 Oct 2014 23:31:16 -0400
+
 sparkleshare (1.1.0-1) unstable; urgency=low
 
   * [e45ec00] Imported Upstream version 1.1.0
