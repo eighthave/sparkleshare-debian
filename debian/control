@@ -13,7 +13,7 @@ Build-Depends-Indep: intltool,
                      python-nautilus
 Standards-Version: 3.9.6
 Homepage: http://sparkleshare.org/
-Vcs-Git: git://git.debian.org/pkg-cli-apps/packages/sparkleshare.git
+Vcs-Git: git://anonscm.debian.org/pkg-cli-apps/packages/sparkleshare.git
 Vcs-Browser: http://anonscm.debian.org/cgit/pkg-cli-apps/packages/sparkleshare.git
 
 Package: sparkleshare
